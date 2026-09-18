@@ -25,5 +25,8 @@ let package = Package(
             name: "CooDialogTests",
             dependencies: ["CooDialog"]
         ),
-    ]
+    ],
+    // 显式声明 Swift 6 语言模式（严格并发检查），不依赖 tools-version 的默认值。
+    // CooDialog 的公开 API 全部为 @MainActor 隔离，需在主线程调用。
+    swiftLanguageModes: [.v6]
 )

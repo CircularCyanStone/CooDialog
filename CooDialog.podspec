@@ -28,7 +28,15 @@ TODO: Add long description of the pod here.
   s.source           = { :git => 'https://github.com/873346225@qq.com/CooDialog.git', :tag => s.version.to_s }
   # s.social_media_url = 'https://twitter.com/<TWITTER_USERNAME>'
 
-  s.ios.deployment_target = '10.0'
+  # 与 Package.swift 的 .iOS(.v13) 对齐：代码已使用 iOS 13 API
+  # （UIWindow(windowScene:)、UIApplication.connectedScenes），
+  # 且 MainActor.assumeIsolated 亦要求 iOS 13+。
+  s.ios.deployment_target = '13.0'
+
+  # Pod target 的编译模式。宿主调用侧的 actor 隔离检查强度由宿主自己的
+  # SWIFT_VERSION 决定，与此值无关，故此处取 5.0 以兼容更广的工具链。
+  # 若希望 Pod target 同样启用 Swift 6 严格并发检查，可改为 '6.0'（需 Xcode 16+）。
+  s.swift_version = '5.0'
 
   s.source_files = 'Sources/CooDialog/**/*'
   
