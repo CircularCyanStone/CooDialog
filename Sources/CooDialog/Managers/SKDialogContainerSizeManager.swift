@@ -208,8 +208,13 @@ class SKDialogContainerSizeManager {
         // 更新尺寸
         updateContainerSize(contentSize, animated: animated, completion: completion)
     }
+}
 
-    // MARK: - Private Methods - Constraint Updates
+// MARK: - Private
+
+extension SKDialogContainerSizeManager {
+
+    // MARK: - Constraint Updates
 
     /// 更新（或按需补建）高度约束。
     ///
@@ -253,7 +258,7 @@ class SKDialogContainerSizeManager {
         updateHeightConstraint(size.height)
     }
 
-    // MARK: - Private Methods - Config Updates
+    // MARK: - Config Updates
 
     /// 把"高度已确定"这一事实写回配置，使 config.sizeMode 与实际约束保持一致。
     ///
@@ -306,7 +311,7 @@ class SKDialogContainerSizeManager {
         viewController.config.sizeMode = .fixed(width: size.width, height: size.height)
     }
 
-    // MARK: - Private Methods - Content Size Calculation
+    // MARK: - Content Size Calculation
 
     /// 计算尺寸上限时使用的"可用屏幕区域"。
     ///
@@ -406,7 +411,7 @@ class SKDialogContainerSizeManager {
         return CGSize(width: width, height: height)
     }
 
-    // MARK: - Private Methods - Layout Updates
+    // MARK: - Layout Updates
 
     /// 统一执行布局更新（并保证 completion 一定被调用）。
     ///
@@ -447,7 +452,7 @@ class SKDialogContainerSizeManager {
     }
 }
 
-// MARK: - Internal Access
+// MARK: - Debug & Testing
 
 /// 调试 / 测试用的只读快照与强制刷新入口，不参与生产路径。
 extension SKDialogContainerSizeManager {

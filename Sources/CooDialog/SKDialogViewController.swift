@@ -17,7 +17,7 @@
 //
 // 生命周期关键时序（理解本文件的主线）：
 // init(config:) → viewDidLoad（建 UI → 建约束 → 装手势 → 预置动画起点）
-// → viewDidAppear / showInWindow（触发 presentDialog，入场动画）
+// → show() / viewDidAppear（触发 presentDialog，入场动画）
 // → viewDidLayoutSubviews（布局完成后校正滑动起点）
 // → dismissDialog（退场动画 → 按模式收尾：隐藏 window 或 dismiss 控制器）
 
@@ -25,19 +25,28 @@ import UIKit
 
 /// 弹窗基础控制器
 ///
-/// 对外以 `open` 暴露：宿主可以继承它覆写生命周期方法或替换内容装配方式。
+/// 对外以 `open` 暴露：宿主可以继承它覆写生命周期方法，并用公开的 `containerView` / `config` /
+/// 各动画回调做定制。
+/// 扩展面刻意止步于此——核心流程（`show` / `dismissDialog` / `addContentView`）只可调用、不可覆写：
+/// 展示方式由 `config.presentationMode` 表达，覆写它们会绕过 `isPresenting` 去重、window 回收等内部时序，
+/// 而这些时序正是本类对外契约（回调必触发、window 必释放）的保障。
 /// 全部 API 均在主 actor 上，需在主线程调用。
 @MainActor
 open class SKDialogViewController: UIViewController {
 
     // MARK: - Properties
 
-    /// 弹窗配置（public 只读引用，内部属性仍可被管理器修改）。
-    /// 由所有管理器共享同一实例：容器尺寸被动态修改时，配置也会被同步回写（见 ContainerSizeManager）。
-    public let config: SKDialogConfig
+    // 本区含公开属性与内部存储：extension 不能声明存储属性，因此两者都集中在主类型体内；
+    // 方法则按可见性分区——公开 API 在本类型体内，internal / private 见下方扩展。
+
+    /// 弹窗配置（值类型，库外只读；setter 为 internal 供尺寸回写使用）。
+    /// 控制器持有自己那份副本，所有管理器都通过它读取配置；
+    /// 动态改尺寸时 SKDialogContainerSizeManager 会把新的 sizeMode 写回这份副本。
+    public internal(set) var config: SKDialogConfig
 
     /// 动画管理器：入场/退场动画的唯一出口。
-    /// 用 let 而非 lazy：构造时就需要把 config 交给它，且之后不再替换（配置本身是引用类型，无需重建）。
+    /// 用 let 而非 lazy：构造时即可创建（构造阶段不做任何 UIKit 操作），之后不再替换。
+    /// 它不持有配置——每次执行动画时由本控制器把当前的 config 传进去。
     private let animationManager: SKDialogAnimationManager
 
     /// 约束管理器：负责创建/成组替换容器的位置与尺寸约束。
@@ -66,15 +75,20 @@ open class SKDialogViewController: UIViewController {
     /// 背景遮罩视图：铺满整个控制器 view，负责拦截点击与提供视觉压暗
     public let backgroundView: UIView = UIView()
 
+    // 以下两个约束引用是 internal（非宿主 API）：它们是"约束管理器 ↔ 尺寸管理器"之间的协作点，
+    // 存储属性不能放进 extension，故留在主类型体内（与 config 的 internal setter 同理）。
+
     /// 容器宽度约束（由 SKDialogConstraintManager 创建时写入，供 SKDialogContainerSizeManager 动态改 constant；
     /// nil 表示当前模式没有宽度约束，即宽度由内容决定）
-    public var containerWidthConstraint: NSLayoutConstraint?
+    /// - Note: 宿主改尺寸请用 `updateContainerWidth(_:animated:)` 等公开方法（会同步回写 config 并做过渡动画），
+    ///   读尺寸请用 `containerView.frame`；直接改这里会绕过两者，让 config 与实际约束不一致。
+    var containerWidthConstraint: NSLayoutConstraint?
 
     /// 容器高度约束（语义同上）
-    public var containerHeightConstraint: NSLayoutConstraint?
+    var containerHeightConstraint: NSLayoutConstraint?
 
     /// 是否正在显示（含入场动画中）。
-    /// 用途：viewDidAppear 与 showInWindow 都可能发起入场，用它保证入口只被真正执行一次；
+    /// 用途：viewDidAppear 与 show() 都可能发起入场，用它保证入口只被真正执行一次；
     /// 同时作为 dismissDialog 的前置条件。
     private var isPresenting = false
 
@@ -104,7 +118,7 @@ open class SKDialogViewController: UIViewController {
     /// 因此初始化后即可安全调用公开 API。
     public init(config: SKDialogConfig = SKDialogConfig()) {
         self.config = config
-        self.animationManager = SKDialogAnimationManager(config: config)
+        self.animationManager = SKDialogAnimationManager()
         super.init(nibName: nil, bundle: nil)
         setupViewController()
     }
@@ -113,17 +127,12 @@ open class SKDialogViewController: UIViewController {
     /// 常规使用请走 `init(config:)`，否则弹窗位置、动画等全部为默认值。
     required public init?(coder: NSCoder) {
         self.config = SKDialogConfig()
-        self.animationManager = SKDialogAnimationManager(config: config)
+        self.animationManager = SKDialogAnimationManager()
         super.init(coder: coder)
         setupViewController()
     }
 
     // MARK: - Lifecycle
-
-    /// 空实现，仅保留覆写点：本类是 open 的，子类可在此按需调整（例如上报曝光埋点）。
-    open override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-    }
 
     /// 搭建阶段：顺序不能颠倒。
     /// 1. setupUI：先建立 backgroundView / containerView 的层级与外观
@@ -136,13 +145,13 @@ open class SKDialogViewController: UIViewController {
         gestureHandler.setupGestures()
     }
 
-    /// 入场动画的触发点之一（另一个是 showInWindow 内部的调用）。
+    /// 入场动画的触发点之一（另一个是 show() 内部的兜底调用）。
     ///
     /// 为什么在这个时机播放：viewDidAppear 表示视图已经进入屏幕层级且完成布局，
     /// 此时动画的位移与透明度变化才真正可见；若在 viewDidLoad 里播，
     /// 动画会赶在视图上屏之前跑完（或被首帧吞掉），用户看不到过程。
     ///
-    /// 用 isPresenting 做守卫的原因：window 模式下 showInWindow() 会在 makeKeyAndVisible
+    /// 用 isPresenting 做守卫的原因：window 模式下 show() 会在 windowManager 完成上屏
     /// 之后继续同步调用一次 presentDialog，而 window 上屏又会异步触发本方法，
     /// 两条路径都需要"能发起入场"，靠这个标记做去重。
     open override func viewDidAppear(_ animated: Bool) {
@@ -163,83 +172,46 @@ open class SKDialogViewController: UIViewController {
         animationStateManager.updateSlideOffsetAfterLayout()
     }
 
-    // MARK: - Setup
-
-    /// 配置模态转场参数。
-    /// - `.overFullScreen`：本控制器只覆盖不替换，需要让下层界面保持可见（遮罩是半透明的）。
-    /// - `.crossDissolve`：仅在宿主以 `present(_:animated: true)` 使用本控制器时才会生效——
-    ///   库内部一律用 `animated: false`，入场动画由 SKDialogAnimationManager 自绘，
-    ///   避免系统转场与自绘动画叠加导致"双重动画"。
-    private func setupViewController() {
-        modalPresentationStyle = .overFullScreen
-        modalTransitionStyle = .crossDissolve
-    }
-
-    /// 搭建视图层级与初始外观。
-    ///
-    /// addSubview 的顺序即 z 序：先加背景，后加容器，容器才能盖在遮罩之上。
-    private func setupUI() {
-        view.backgroundColor = UIColor.clear
-
-        // 背景遮罩
-        // alpha 从 0 开始：入场动画负责把它推到 1（淡入遮罩）
-        backgroundView.backgroundColor = config.backgroundMaskColor
-        backgroundView.alpha = 0
-        view.addSubview(backgroundView)
-
-        // 容器视图
-        containerView.backgroundColor = config.containerBackgroundColor
-        containerView.layer.cornerRadius = config.cornerRadius
-        view.addSubview(containerView)
-
-        // 阴影效果
-        // 只有开启阴影时才写图层属性：maskToBounds = false 是阴影可见的前提
-        //（shadow 会被图层裁剪掉），同时也意味着容器不会把子视图裁进圆角内
-        if config.showShadow {
-            containerView.layer.masksToBounds = false
-            containerView.layer.shadowColor = config.shadowColor.cgColor
-            containerView.layer.shadowOffset = config.shadowOffset
-            containerView.layer.shadowRadius = config.shadowRadius
-            containerView.layer.shadowOpacity = config.shadowOpacity
-        }
-
-        // 根据动画类型预设容器视图的初始状态，避免闪现问题
-        // 必须在布局之前完成：这样首帧渲染出的就是"起点状态"，而不是最终位置
-        animationStateManager.setupInitialAnimationState()
-    }
-
-
     // MARK: - Public Methods
 
-    /// 显示弹窗（播放入场动画）。
+    /// 显示弹窗（展示入口）：按 `config.presentationMode` 自动选择展示方式。
     ///
-    /// 时序：先触发 "will start" 回调（宿主可在此做数据准备），再执行动画，
-    /// 动画结束时更新内部状态、触发 "did finish" 回调，并立刻清空这两个回调。
-    /// 提前置 isPresenting = true 的作用是让重复调用直接返回，
-    /// 避免同一弹窗被连续 present 两次（动画会互相打断）。
-    open func presentDialog() {
-        guard !isPresenting else { return }
-        isPresenting = true
-
-        // 通知动画即将开始
-        presentAnimationWillStartHandler?()
-
-        animationManager.performPresentAnimation(
-            backgroundView: backgroundView,
-            containerView: containerView
-        ) { [weak self] in
-            // 推进动画状态机到 .final：此后布局不再重设滑动起点。
-            // 若不推进（状态一直停在 .initial），弹窗显示后任何一次布局都会把容器推回屏幕外，
-            // 详见 SKDialogAnimationStateManager 的说明
-            self?.animationStateManager.markAnimationCompleted()
-            // 通知动画已完成
-            self?.presentAnimationDidFinishHandler?()
-            // 及时清理回调，避免内存泄漏
-            // 回调通常捕获宿主的 self，若一直留着会延长宿主对象的生命周期；
-            // 入场只发生一次，用完即弃是安全的
-            self?.presentAnimationWillStartHandler = nil
-            self?.presentAnimationDidFinishHandler = nil
+    /// - `.window`：由 window 管理器自建 UIWindow 装载本控制器并上屏，随后发起入场动画
+    /// - `.viewController(vc)`：由 vc 以 `animated: false` present（系统转场关闭，
+    ///   视觉动画全部由库自绘），随后发起入场动画
+    ///
+    /// 这是与 `SKDialog` 构建器并列的另一种用法：继承本类后直接调用本方法即可展示，
+    /// 不需要经过构建器。
+    /// - Note: 刻意非 `open`：展示方式的差异请通过 `config.presentationMode` 表达；
+    ///   覆写本方法会绕过 `isPresenting` 去重与两种模式的分发/收尾逻辑（window 回收、系统 dismiss）。
+    ///   返回 `Self` 与是否 `open` 无关，子类照样能拿到自己的类型。
+    ///
+    /// - Parameter completion: **显示完成**回调（window 上屏后 / present 转场结束后触发）。
+    ///   它不是关闭回调——需要"关闭后执行"的逻辑请用 `addCompletionHandler(_:)` 或
+    ///   `dismissDialog(completion:)`；window 创建失败（例如无可用 scene）时同样会被调用，
+    ///   保证"调用必回调"。
+    /// - Returns: self，便于链式书写（子类可拿到自己的类型）。
+    /// - Note: 入场动画统一由 `presentDialog()` 发起，它有 `isPresenting` 去重，
+    ///   因此 viewDidAppear 与本方法内的兜底调用不会重复播放动画。
+    @discardableResult
+    public func show(completion: (() -> Void)? = nil) -> Self {
+        switch config.presentationMode {
+        case .window:
+            // window 管理器负责：建 window → 装载本控制器 → 上屏 → 调用 completion
+            windowManager.showInWindow(completion: completion)
+            // window 上屏会异步触发 viewDidAppear → presentDialog；
+            // 这里同步再发起一次兜底（isPresenting 去重），覆盖
+            // "已上屏但 viewDidAppear 尚未回调"的边缘时序，保证入场一定会被发起
+            presentDialog()
+        case .viewController(let viewController):
+            // 使用指定的视图控制器显示（animated: false 禁用系统转场，
+            // 入场动画完全由库控制，避免与系统转场叠加）
+            viewController.present(self, animated: false) {
+                completion?()
+                self.presentDialog()
+            }
         }
+        return self
     }
 
     /// 消失弹窗（播放退场动画后按显示模式收尾）。
@@ -256,7 +228,10 @@ open class SKDialogViewController: UIViewController {
     ///
     /// 未处于显示状态时直接回调：保证"调用 dismiss 一定会收到完成通知"，
     /// 宿主因此不必自己判断当前状态。
-    open func dismissDialog(completion: (() -> Void)? = nil) {
+    /// - Note: 刻意非 `open`：本类全部关闭路径（背景点击 / 拖拽 / `UIView.closeSKDialog()` /
+    ///   `dismiss()`）都收敛到这一份收尾实现，覆写会让这些路径一起被替换；漏调 super 还会残留
+    ///   `isPresenting` 状态、导致 window 无法释放。需要"关闭前拦截"请在调用方判断后再决定是否调用。
+    public func dismissDialog(completion: (() -> Void)? = nil) {
         guard isPresenting else { 
             completion?()
             return 
@@ -268,7 +243,8 @@ open class SKDialogViewController: UIViewController {
 
         animationManager.performDismissAnimation(
             backgroundView: backgroundView,
-            containerView: containerView
+            containerView: containerView,
+            config: config
         ) { [weak self] in
             // 通知动画已完成
             self?.dismissAnimationDidFinishHandler?()
@@ -301,8 +277,10 @@ open class SKDialogViewController: UIViewController {
         }
     }
 
-    /// 简化的消失方法，兼容旧版本API
-    open func dismiss() {
+    /// 简化的消失方法，兼容旧版本API。
+    /// - Note: 刻意非 `open`：它只是 `dismissDialog()` 的转发壳，覆写它会让
+    ///   "背景点击 / 拖拽关闭"与"主动关闭"两条路径行为分叉。
+    public func dismiss() {
         dismissDialog()
     }
 
@@ -315,7 +293,9 @@ open class SKDialogViewController: UIViewController {
     ///
     /// - Note: 可以多次调用，但每次都是 addSubview，**不会**移除上一个内容视图
     ///   （多个内容会叠加在一起）。替换内容需要宿主自行处理旧视图。
-    open func addContentView(_ contentView: UIView) {
+    /// - Note: 刻意非 `open`：装配面只有一个——需要包装/装饰内容时，请在外面包好后传入本方法，
+    ///   或直接对公开的 `containerView` 操作。
+    public func addContentView(_ contentView: UIView) {
         containerView.addSubview(contentView)
         contentView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -372,45 +352,95 @@ open class SKDialogViewController: UIViewController {
      public func updateContainerSize(width: CGFloat, height: CGFloat, animated: Bool = true) {
          containerSizeManager.updateContainerSize(CGSize(width: width, height: height), animated: animated)
      }
- }
+}
 
-// MARK: - Window Mode Support
+// MARK: - Internal
 
 extension SKDialogViewController {
 
-    /// 使用自定义Window显示弹窗
-    /// 这种方式可以在任何地方显示弹窗，不依赖于现有的视图控制器层级
+    /// 播放弹窗的入场动画（内部入口，不负责上屏）。
     ///
-    /// 内部会连带触发入场动画：window 上屏 → 控制器的 viewDidAppear → presentDialog。
-    /// 紧随其后的 `show()` 因此通常是一次被守卫拦住的空操作，它存在的意义是覆盖
-    /// "window 已上屏但 viewDidAppear 尚未回调"的边缘时序（保证入场一定会被发起）。
-    /// - Parameter completion: **显示完成**回调（window 上屏后触发）。
-    ///   它不是关闭回调，因此不会写入 `completionHandler`——需要"关闭后执行"的逻辑请用
-    ///   `addCompletionHandler(_:)` 或 `dismissDialog(completion:)`。
-    public func showInWindow(completion: (() -> Void)? = nil) {
-        // 使用Window管理器显示（显示完成后由管理器调用 completion）
-        windowManager.showInWindow(completion: completion)
+    /// 调用时机：`show()` 发起展示之后（window 已上屏 / present 已完成），以及
+    /// `viewDidAppear`；两条路径都会先经过 `isPresenting` 去重，保证只播一次。
+    /// 它假设视图已经在屏幕层级里——对外展示请用 `show()`，单独调用它既不会建 window、
+    /// 也不会 present。
+    ///
+    /// 时序：先触发 "will start" 回调（宿主可在此做数据准备），再执行动画，
+    /// 动画结束时更新内部状态、触发 "did finish" 回调，并立刻清空这两个回调。
+    /// 提前置 isPresenting = true 的作用是让重复调用直接返回，
+    /// 避免同一弹窗被连续 present 两次（动画会互相打断）。
+    func presentDialog() {
+        guard !isPresenting else { return }
+        isPresenting = true
 
-        // 显示弹窗
-        show()
+        // 通知动画即将开始
+        presentAnimationWillStartHandler?()
+
+        animationManager.performPresentAnimation(
+            backgroundView: backgroundView,
+            containerView: containerView,
+            config: config
+        ) { [weak self] in
+            // 推进动画状态机到 .final：此后布局不再重设滑动起点。
+            // 若不推进（状态一直停在 .initial），弹窗显示后任何一次布局都会把容器推回屏幕外，
+            // 详见 SKDialogAnimationStateManager 的说明
+            self?.animationStateManager.markAnimationCompleted()
+            // 通知动画已完成
+            self?.presentAnimationDidFinishHandler?()
+            // 及时清理回调，避免内存泄漏
+            // 回调通常捕获宿主的 self，若一直留着会延长宿主对象的生命周期；
+            // 入场只发生一次，用完即弃是安全的
+            self?.presentAnimationWillStartHandler = nil
+            self?.presentAnimationDidFinishHandler = nil
+        }
+    }
+}
+
+// MARK: - Private
+
+extension SKDialogViewController {
+
+    /// 配置模态转场参数。
+    /// - `.overFullScreen`：本控制器只覆盖不替换，需要让下层界面保持可见（遮罩是半透明的）。
+    /// - `.crossDissolve`：仅在宿主以 `present(_:animated: true)` 使用本控制器时才会生效——
+    ///   库内部一律用 `animated: false`，入场动画由 SKDialogAnimationManager 自绘，
+    ///   避免系统转场与自绘动画叠加导致"双重动画"。
+    private func setupViewController() {
+        modalPresentationStyle = .overFullScreen
+        modalTransitionStyle = .crossDissolve
     }
 
-    /// 显示弹窗的内部方法
-    private func show() {
-        // 根据显示模式进行不同的处理
-        switch config.presentationMode {
-        case .window:
-            // Window模式已经在showInWindow中处理
-            // 这里再次调用是兜底：若 viewDidAppear 还没触发，则由此处启动入场动画；
-            // 若已经触发过，isPresenting 守卫会让它直接返回
-            presentDialog()
-        case .viewController(let viewController):
-            // 使用指定的视图控制器显示（animated: false 禁用系统转场，
-            // 入场动画完全由库控制，避免与系统转场叠加）
-            viewController.present(self, animated: false) {
-                self.presentDialog()
-            }
+    /// 搭建视图层级与初始外观。
+    ///
+    /// addSubview 的顺序即 z 序：先加背景，后加容器，容器才能盖在遮罩之上。
+    private func setupUI() {
+        view.backgroundColor = UIColor.clear
+
+        // 背景遮罩
+        // alpha 从 0 开始：入场动画负责把它推到 1（淡入遮罩）
+        backgroundView.backgroundColor = config.backgroundMaskColor
+        backgroundView.alpha = 0
+        view.addSubview(backgroundView)
+
+        // 容器视图
+        containerView.backgroundColor = config.containerBackgroundColor
+        containerView.layer.cornerRadius = config.cornerRadius
+        view.addSubview(containerView)
+
+        // 阴影效果
+        // 只有开启阴影时才写图层属性：maskToBounds = false 是阴影可见的前提
+        //（shadow 会被图层裁剪掉），同时也意味着容器不会把子视图裁进圆角内
+        if config.showShadow {
+            containerView.layer.masksToBounds = false
+            containerView.layer.shadowColor = config.shadowColor.cgColor
+            containerView.layer.shadowOffset = config.shadowOffset
+            containerView.layer.shadowRadius = config.shadowRadius
+            containerView.layer.shadowOpacity = config.shadowOpacity
         }
+
+        // 根据动画类型预设容器视图的初始状态，避免闪现问题
+        // 必须在布局之前完成：这样首帧渲染出的就是"起点状态"，而不是最终位置
+        animationStateManager.setupInitialAnimationState()
     }
 
     /// 隐藏自定义Window

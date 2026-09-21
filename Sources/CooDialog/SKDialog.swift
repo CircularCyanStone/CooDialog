@@ -29,9 +29,10 @@
  *    执行全部交给 SKDialogViewController 及其管理器，两者互不越界
  *
  * 三个类型的关系与生命周期：
- * `SKDialog`（意图收集）→ 持有 `SKDialogConfig`（参数）→ `show()` 创建 `SKDialogViewController`（执行）
- * 注意 config 是引用类型：同一个构建器实例被展示两次时，两个弹窗共享同一份配置，
- * 后续对构建器的修改会同时影响已存在的两个弹窗。需要多个独立弹窗时应各自新建构建器。
+ * `SKDialog`（意图收集）→ 持有 `SKDialogConfig`（参数，值类型）→ `show()` 创建 `SKDialogViewController`（执行）
+ * 配置按值传递：`show()` 会把当时的配置交给控制器，之后对构建器的修改不会影响已展示的弹窗；
+ * 同一个构建器实例展示两次，两个弹窗各自持有独立的配置，互不干扰。
+ * 需要"基于同一份预设再改几项"时，重新调用静态工厂（`bottom()` / `center()` / `top()`）即可。
  */
 
 import UIKit
@@ -42,7 +43,10 @@ import UIKit
 @MainActor
 public class SKDialog {
 
-    // MARK: - Properties
+    // MARK: - Internal Storage
+
+    // 本区全是私有存储：extension 不能声明存储属性，故统一留在主类型体内；
+    // 方法则按可见性分区——对外 API 全部在本类型体内（见下方各 MARK）。
 
     /// 配置累积器：所有链式方法最终都写进这里，`show()` 时整体交给控制器。
     /// 只在构建器内部使用，宿主看到的是各个语义化的配置方法。
@@ -289,23 +293,20 @@ public class SKDialog {
         self.contentView = view
         return self
     }
-}
 
-// MARK: - Show Methods
+    // MARK: - Show
 
-extension SKDialog {
-
-    /// 显示弹窗（根据配置自动选择显示方式），返回承载它的控制器。
+    /// 显示弹窗，返回承载它的控制器。
     ///
     /// 返回值不是可忽略的错误值，而是**操控已展示弹窗的唯一入口**：
     /// 通过它可以动态改尺寸（`updateContainerHeight` 等）、追加完成回调或主动关闭。
     /// 标 `@discardableResult` 是因为"配好就展开展示、不关心后续"是最常见的用法。
     ///
-    /// 执行流程：创建控制器 → 装载内容 → 转移动画回调 → 按显示模式发起展示。
-    /// - Note: 两种模式的"发起方式"不同——window 模式由管理器自建窗口并上屏，
-    ///   控制器模式交给指定控制器 present（`animated: false`，视觉动画全部由库自绘）。
-    ///   无论哪条路径，真正的入场动画都由控制器统一发起（viewDidAppear 或 showInWindow），
-    ///   本方法不直接播放动画。
+    /// 执行流程：创建控制器 → 装载内容 → 转移动画回调 → 交给控制器的 `show()` 发起展示。
+    /// - Note: 展示方式（自建 window / 指定控制器 present）由控制器按
+    ///   `config.presentationMode` 自行决定，构建器不参与判断；入场动画同样由控制器统一
+    ///   发起，本方法不直接播放动画。不想经过构建器时，也可以直接创建（或继承）
+    ///   `SKDialogViewController` 并调用它的 `show()`。
     @discardableResult
     public func show() -> SKDialogViewController {
         let dialog = SKDialogViewController(config: config)
@@ -321,22 +322,13 @@ extension SKDialog {
         dialog.dismissAnimationWillStartHandler = dismissAnimationWillStartHandler
         dialog.dismissAnimationDidFinishHandler = dismissAnimationDidFinishHandler
 
-        switch config.presentationMode {
-        case .window:
-            dialog.showInWindow()
-        case .viewController(let viewController):
-            // 用 animated: false 交由系统建立模态层级，入场动画随后由控制器的
-            // viewDidAppear → presentDialog 播放，避免系统转场与自绘动画叠加
-            viewController.present(dialog, animated: false)
-        }
+        // 展示方式由控制器按 config.presentationMode 自行决定，构建器只负责装配
+        dialog.show()
 
         return dialog
     }
-}
 
-// MARK: - Preset Configuration Builders
-
-extension SKDialog {
+    // MARK: - Preset Configuration Builders
 
     /// 创建底部弹窗（预设：从底部滑入 / 内容自适应 / 可拖拽 / 延伸到安全区）。
     ///
@@ -374,11 +366,8 @@ extension SKDialog {
             .cornerRadius(16)
             .enablePanGestureDismiss()
     }
-}
 
-// MARK: - Quick Creation Methods
-
-extension SKDialog {
+    // MARK: - Quick Creation Methods
 
     /// 一行完成"创建底部弹窗并展示"，返回控制器以便后续操作。
     /// 等价于 `SKDialog.bottom().contentView(view).show()`。

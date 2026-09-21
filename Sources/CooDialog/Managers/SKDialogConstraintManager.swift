@@ -64,8 +64,6 @@ class SKDialogConstraintManager {
     /// 之所以"先清除再建立"：本方法可能在重复配置后再次调用，
     /// 不清除会产生两组锚点不同的约束，直接导致布局冲突与不可预期的位置。
     func setupContainerConstraints() {
-        guard viewController != nil else { return }
-
         // 清除之前的约束
         clearConstraints()
 
@@ -116,8 +114,11 @@ class SKDialogConstraintManager {
         // 更新布局
         viewController.view.layoutIfNeeded()
     }
+}
 
-    // MARK: - Private Methods
+// MARK: - Private
+
+extension SKDialogConstraintManager {
 
     /// 清除所有约束（停用 + 清空引用，两边必须成对，否则数组里会残留已停用对象）
     private func clearConstraints() {
@@ -313,7 +314,7 @@ class SKDialogConstraintManager {
     }
 }
 
-// MARK: - Internal Access
+// MARK: - Debug & Testing
 
 /// 调试 / 测试用的自检入口，不参与生产路径。
 extension SKDialogConstraintManager {

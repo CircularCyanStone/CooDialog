@@ -9,24 +9,23 @@ let package = Package(
         .iOS(.v13),
     ],
     products: [
-        // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "CooDialog",
             targets: ["CooDialog"]
         ),
     ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "CooDialog"
+            name: "CooDialog",
+            // 如果你的代码里用到了 UIKit，部分 Xcode 版本或 Swift 版本下
+            // 明确加上 linkerSettings 或确保 iOS 平台生效会有所帮助。
+            // 通常只需确保 platforms 先生效，若依然报错，可尝试通过以下方式清理缓存。
+            dependencies: []
         ),
         .testTarget(
             name: "CooDialogTests",
             dependencies: ["CooDialog"]
         ),
     ],
-    // 显式声明 Swift 6 语言模式（严格并发检查），不依赖 tools-version 的默认值。
-    // CooDialog 的公开 API 全部为 @MainActor 隔离，需在主线程调用。
     swiftLanguageModes: [.v6]
 )

@@ -32,13 +32,16 @@ import UIKit
 
 /// UIView扩展，提供SKDialog弹窗相关的便捷方法
 /// 支持通过响应链和视图层级查找并关闭弹窗，提供按钮和手势的快捷操作
-
-// MARK: - UIView Extension for SKDialog
-
+///
+/// 结构约定：公开 API 集中在下方 `// MARK: - Public API` 段，私有实现集中在
+/// `// MARK: - Private` 段；两段都必须显式标注 @MainActor（原因见下）。
+///
 /// - Important: 显式标注 `@MainActor`（而非依赖 `UIView` 推断）。
 ///   推断得到的隔离，违规时编译器只给 warning，宿主在后台线程调用可编译通过，
 ///   但 Swift 6 会为 `@MainActor` 方法插入运行时断言，最终在运行时崩溃。
 ///   显式标注可将该违规在编译期升级为 error。
+// MARK: - Public API
+
 @MainActor
 extension UIView {
 
@@ -65,6 +68,19 @@ extension UIView {
         print("SKDialog Warning: No SKDialogViewController found in responder chain")
     }
 
+    /// 判断当前视图是否位于 SKDialog 弹窗内（沿响应链查找控制器）。
+    /// 适用场景：同一段业务代码同时服务弹窗内与弹窗外的视图时用它区分上下文，
+    /// 例如据此决定"关闭弹窗"还是"push 新页面"。
+    public var isInSKDialog: Bool {
+        return findSKDialogViewController() != nil
+    }
+}
+
+// MARK: - Private
+
+@MainActor
+extension UIView {
+
     /// 通过响应链查找SKDialogViewController
     /// 作为 private 实现供内部复用（closeSKDialog 与 isInSKDialog 共用同一套遍历）；
     /// 若将来需要暴露给宿主，应改为返回可选值的 public 方法，而不是复制这段逻辑。
@@ -77,19 +93,5 @@ extension UIView {
             responder = responder?.next
         }
         return nil
-    }
-}
-
-// MARK: - Convenience Methods
-
-/// - Important: 同 `closeSKDialog()`，显式标注以获得编译期 error 级别的隔离检查。
-@MainActor
-extension UIView {
-
-    /// 判断当前视图是否位于 SKDialog 弹窗内（沿响应链查找控制器）。
-    /// 适用场景：同一段业务代码同时服务弹窗内与弹窗外的视图时用它区分上下文，
-    /// 例如据此决定"关闭弹窗"还是"push 新页面"。
-    public var isInSKDialog: Bool {
-        return findSKDialogViewController() != nil
     }
 }

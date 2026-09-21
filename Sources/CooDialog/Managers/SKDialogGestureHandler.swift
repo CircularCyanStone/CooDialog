@@ -96,8 +96,13 @@ class SKDialogGestureHandler {
             && viewController.config.enablePanGestureDismiss
         panGesture?.isEnabled = supportsPanGesture
     }
+}
 
-    // MARK: - Private Methods - Background Tap
+// MARK: - Private
+
+extension SKDialogGestureHandler {
+
+    // MARK: - Background Tap
 
     /// 安装背景点击手势。
     ///
@@ -146,7 +151,7 @@ class SKDialogGestureHandler {
         }
     }
 
-    // MARK: - Private Methods - Pan Gesture
+    // MARK: - Pan Gesture
 
     /// 安装拖拽手势。
     ///
@@ -183,8 +188,6 @@ class SKDialogGestureHandler {
     /// 把 `.cancelled` 与 `.ended` 合并处理是有意的——两者都需要"决定关闭还是回弹"，
     /// 否则被系统打断（来电、多指手势竞争）时容器会停在半途，既不关闭也不归位。
     @objc private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {
-        guard viewController != nil else { return }
-
         switch gesture.state {
         case .began:
             handlePanBegan(gesture)
@@ -355,7 +358,7 @@ class SKDialogGestureHandler {
     }
 }
 
-// MARK: - Internal Access
+// MARK: - Debug & Testing
 
 /// 调试 / 测试用的状态查询与强制复位入口，不参与生产路径。
 extension SKDialogGestureHandler {

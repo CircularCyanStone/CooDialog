@@ -18,7 +18,7 @@
  * 于是出现时序矛盾：预置状态的那一刻拿不到正确尺寸。
  * 解决办法就是把"预置"和"校正"分开：先给一个粗略的起点保证首帧不露馅，
  * 等 viewDidLayoutSubviews 拿到真实 bounds 后再精修一次。
- * 换句话说，本类是动画实现类"不必自己处理尺寸未知情况"的前提。
+ * 换句话说，本类是动画实现"不必自己处理尺寸未知情况"的前提。
  *
  * 包含类型：
  * - SKDialogAnimationStateManager：状态持有者 + 初始状态与偏移量计算
@@ -182,8 +182,13 @@ class SKDialogAnimationStateManager {
     func markAnimationCompleted() {
         currentAnimationState = .final
     }
+}
 
-    // MARK: - Private Methods - Slide Animation
+// MARK: - Private
+
+extension SKDialogAnimationStateManager {
+
+    // MARK: - Slide Animation
 
     /// 设置滑动动画初始状态。
     ///
@@ -208,10 +213,6 @@ class SKDialogAnimationStateManager {
 
         let animationType = viewController.config.animationType
         let containerSize = viewController.containerView.bounds.size
-        // 下面这行的取值结果被丢弃（仅做一次 view 访问）。它不参与计算，
-        // 保留原样以免改变行为；如需清理可直接删除。
-        _ = viewController.view.bounds.size
-
         switch animationType {
         case .slideFromTop, .slideFromTopWithFade:
             // 从顶部滑入，初始位置在视图上方
@@ -255,12 +256,13 @@ class SKDialogAnimationStateManager {
         viewController.backgroundView.alpha = 0.0
     }
 
-    // MARK: - Private Methods - FadeScale Animation
+    // MARK: - FadeScale Animation
 
     /// 设置 fadeScale 动画的初始状态：按配置比例缩小 + 全透明。
     ///
-    /// - Note: 这里的缩放值取自 `config.fadeScaleInitialScale`，但 FadeScaleAnimation
-    ///   在动画开始时会用固定的 0.8 覆盖它，所以自定义该值对最终观感的改变有限（详见配置类注释）。
+    /// - Note: 这里的缩放值取自 `config.fadeScaleInitialScale`，且 FadeScaleAnimation
+    ///   在动画开始时会读取同一个值作为起点，因此"预置状态 → 动画起点"之间不会出现缩放跳变，
+    ///   宿主自定义该值对入场与退场都会生效。
     private func setupFadeScaleInitialState() {
         guard let viewController = viewController else { return }
 
@@ -272,7 +274,7 @@ class SKDialogAnimationStateManager {
     }
 }
 
-// MARK: - Internal Access
+// MARK: - Debug & Testing
 
 /// 调试 / 测试用的只读快照与强制重置入口，均不参与生产路径。
 extension SKDialogAnimationStateManager {

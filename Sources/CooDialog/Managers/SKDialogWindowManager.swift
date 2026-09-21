@@ -119,7 +119,6 @@ class SKDialogWindowManager {
     /// - Parameter completion: 隐藏完成回调
     func hideCustomWindow(completion: (() -> Void)? = nil) {
 
-
         // 未显示时直接回调：保持"调用必回调"的约定，简化调用方的流程判断
         guard isWindowVisible else {
             completion?()
@@ -142,9 +141,11 @@ class SKDialogWindowManager {
         // 调用完成回调
         completion?()
     }
+}
 
+// MARK: - Private
 
-    // MARK: - Private Methods
+extension SKDialogWindowManager {
 
     /// 创建自定义Window
     /// - Returns: 是否创建成功；无可用 window scene 时返回 false。
@@ -187,7 +188,6 @@ class SKDialogWindowManager {
         window.autoresizingMask = []
     }
 
-
     /// 当前活跃的 window scene（优先 foregroundActive，其次首个可用的）
     /// - Note: 优先取前台活跃场景，是为了在分屏 / 多窗口下把弹窗放到用户正在操作的那个场景；
     ///   没有前台场景时退化为任意可用场景，保证"能显示"优先于"显示在正确场景"。
@@ -205,11 +205,9 @@ class SKDialogWindowManager {
         // （键盘 window、状态栏 window 等），只有 key 的那个才是需要恢复的目标
         return activeWindowScene?.windows.first { $0.isKeyWindow }
     }
-
-
 }
 
-// MARK: - Internal Access
+// MARK: - Debug & Testing
 
 /// 调试 / 测试用的状态查询与强制清理入口，不参与生产路径。
 extension SKDialogWindowManager {
@@ -224,7 +222,6 @@ extension SKDialogWindowManager {
         return customWindow
     }
 
-
     /// 强制清理：不做 key window 恢复，也不校验可见状态。
     /// 用于异常路径的兜底释放（例如控制器已被销毁、window 状态不明确时），
     /// 目的只是消除残留引用，避免泄漏。
@@ -235,6 +232,5 @@ extension SKDialogWindowManager {
         isWindowVisible = false
         originalKeyWindow = nil
     }
-
 
 }
