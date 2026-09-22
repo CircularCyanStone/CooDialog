@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		CD0000000000000000000003 /* CooDialog in Frameworks */ = {isa = PBXBuildFile; productRef = CD0000000000000000000002 /* CooDialog */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		FB8CD020305D1A3700DEAB03 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -65,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CD0000000000000000000003 /* CooDialog in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,6 +130,7 @@
 			);
 			name = SPMExample;
 			packageProductDependencies = (
+				CD0000000000000000000002 /* CooDialog */,
 			);
 			productName = SPMExample;
 			productReference = FB8CD009305D1A3600DEAB03 /* SPMExample.app */;
@@ -208,6 +214,9 @@
 			);
 			mainGroup = FB8CD000305D1A3600DEAB03;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CD0000000000000000000001 /* XCLocalSwiftPackageReference ".." */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FB8CD00A305D1A3600DEAB03 /* Products */;
 			projectDirPath = "";
@@ -591,6 +600,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		CD0000000000000000000001 /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CD0000000000000000000002 /* CooDialog */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CooDialog;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = FB8CD001305D1A3600DEAB03 /* Project object */;
 }

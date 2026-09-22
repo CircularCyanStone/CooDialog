@@ -17,9 +17,7 @@ let package = Package(
     targets: [
         .target(
             name: "CooDialog",
-            // 如果你的代码里用到了 UIKit，部分 Xcode 版本或 Swift 版本下
-            // 明确加上 linkerSettings 或确保 iOS 平台生效会有所帮助。
-            // 通常只需确保 platforms 先生效，若依然报错，可尝试通过以下方式清理缓存。
+            // 纯 UIKit 实现，无第三方依赖；平台与最低版本由上面的 platforms 声明
             dependencies: []
         ),
         .testTarget(

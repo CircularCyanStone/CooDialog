@@ -9,7 +9,7 @@
 Pod::Spec.new do |s|
   s.name             = 'CooDialog'
   s.version          = '0.0.1'
-  s.summary          = 'A short description of CooDialog.'
+  s.summary          = '基于 AutoLayout 的 iOS 弹窗组件：底部面板 / 居中对话框 / 顶部提示条，内置 9 种动画与拖拽关闭。'
 
 # This description is used to generate tags and improve search results.
 #   * Think: What does it do? Why did you write it? What is the focus?
@@ -18,14 +18,20 @@ Pod::Spec.new do |s|
 #   * Finally, don't worry about the indent, CocoaPods strips it!
 
   s.description      = <<-DESC
-TODO: Add long description of the pod here.
+CooDialog 是一个基于 AutoLayout 的轻量弹窗组件（iOS 13+），特点：
+
+- 三种形态：底部面板、居中对话框、顶部提示条
+- 9 种内置入场/退场动画，并可通过 SKDialogAnimationProtocol 注入自定义动画
+- 交互：点击遮罩关闭、拖拽关闭；内容里存在可滚动视图时，纵向滚动自动让位给内容
+- 载体可选：默认由独立 UIWindow 承载（层级最高，不受宿主控制器层级限制），也可指定控制器 present
+- 展示后支持动态改尺寸（带过渡动画），入场/退场各时机都有回调可插入业务逻辑
                        DESC
 
-  s.homepage         = 'https://github.com/873346225@qq.com/CooDialog'
+  s.homepage         = 'https://github.com/CircularCyanStone/CooDialog'
   # s.screenshots     = 'www.example.com/screenshots_1', 'www.example.com/screenshots_2'
   s.license          = { :type => 'MIT', :file => 'LICENSE' }
-  s.author           = { '873346225@qq.com' => '2963460@qq.com' }
-  s.source           = { :git => 'https://github.com/873346225@qq.com/CooDialog.git', :tag => s.version.to_s }
+  s.author           = { 'CircularCyanStone' => '2963460@qq.com' }
+  s.source           = { :git => 'https://github.com/CircularCyanStone/CooDialog.git', :tag => s.version.to_s }
   # s.social_media_url = 'https://twitter.com/<TWITTER_USERNAME>'
 
   # 与 Package.swift 的 .iOS(.v13) 对齐：代码已使用 iOS 13 API
