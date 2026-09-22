@@ -52,9 +52,10 @@ extension UIView {
     /// - 找到后立即 return：只关闭"最近的那个"弹窗，嵌套弹窗场景下不会连带关掉外层
     /// - 标注 `@objc` 是为了可被 Objective-C 调用（混编工程里按钮的 selector 常写在 OC 侧）
     ///
-    /// 未命中时只打印一行警告、不做断言：这是有意的——
+    /// 未命中时只在 DEBUG 下打印一行说明、不做断言：这是有意的——
     /// 该方法通常由按钮点击触发，而点击可能正好发生在弹窗关闭过程中（响应链已断开），
     /// 属于正常竞态而非程序错误，不应让宿主崩溃。
+    /// Release 构建完全静默：库不在生产环境往控制台输出。
     @objc public func closeSKDialog() {
         var responder: UIResponder? = self
         while responder != nil {
@@ -65,7 +66,9 @@ extension UIView {
             responder = responder?.next
         }
 
-        print("SKDialog Warning: No SKDialogViewController found in responder chain")
+        #if DEBUG
+        print("SKDialog: 响应链上找不到 SKDialogViewController（该视图可能已不在弹窗内）")
+        #endif
     }
 
     /// 判断当前视图是否位于 SKDialog 弹窗内（沿响应链查找控制器）。

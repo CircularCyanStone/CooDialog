@@ -12,22 +12,28 @@
  * 该管理器将约束相关的复杂逻辑从主控制器中分离出来，提高代码的可维护性和可读性。
  *
  * 类型功能描述：
- * - 约束设置：根据弹窗配置设置容器视图的位置、尺寸约束
- * - 约束更新：动态更新约束以适应不同的显示模式和尺寸要求
+ * - 约束设置：根据弹窗配置建立遮罩铺满约束，以及容器的位置、尺寸约束
+ * - 尺寸更新：动态改尺寸时改写已有约束的 constant，没有则补建并登记
  * - 位置管理：处理弹窗在不同位置（顶部、居中、底部）的约束配置
  * - 尺寸管理：处理固定尺寸、内容自适应等不同尺寸模式的约束
  * - 安全区域：处理延伸到安全区域的约束配置
  *
- * 设计原理（为什么约束需要独立的管理器）：
- * 约束是"成组生效"的——位置约束和尺寸约束必须能整组停用、整组替换，否则会出现
- * "旧约束还没失效、新约束已经生效"导致的冲突警告。因此这里用一个数组集中持有本管理器
- * 创建的全部约束，所有增删都通过它进行，保证任一时点的激活集合是明确的。
+ * 设计原理（为什么约束需要独立的管理器，且要分两组账本）：
+ * 两组约束的生命周期不同，混在一个数组里会让"清理"这件事没有明确边界：
+ * - 遮罩约束（backgroundConstraints）：四边铺满，搭建时建一次，此后不再改动
+ * - 容器约束（containerConstraints）：位置 + 尺寸，动态改尺寸时会逐条改写
+ * 全部增删都通过这两个账本进行，保证任一时点的激活集合是明确的。
  *
- * 与 SKDialogContainerSizeManager 的分工（容易混淆，注意区分）：
- * - 本管理器负责**结构性**的约束：新建、成组替换（配置改变、需要重建约束体系的场景）
- * - 容器尺寸的动态调整（改 constant 而不重建）也由本管理器落地
- *   （setContainerWidth / setContainerHeight），由 SKDialogContainerSizeManager 按宿主调用驱动；
- *   后者负责计算内容尺寸、动画过渡与 config 回写，不直接接触 NSLayoutConstraint 对象
+ * 运行时的能力边界（重要，这是本类对外行为的定义）：
+ * 位置与尺寸模式都在**展示前**确定。运行时只支持"改尺寸数值"——
+ * 即 setContainerWidth / setContainerHeight（由 SKDialogContainerSizeManager 驱动），
+ * 它改写已有约束的 constant，或在缺少该方向约束时补建一条。
+ * 不支持运行时整体切换位置或尺寸语义：需要另一种形态时请新建弹窗
+ * （SKDialogConfig 在库外只读，重建的成本也很低）。
+ *
+ * 与 SKDialogContainerSizeManager 的分工：
+ * 后者负责计算内容尺寸、动画过渡与 config 回写，不直接接触 NSLayoutConstraint 对象；
+ * 本管理器是约束的唯一持有者与唯一修改入口，二者的依赖方向单向（尺寸管理器 → 本管理器）。
  */
 
 import UIKit
@@ -43,10 +49,10 @@ class SKDialogConstraintManager {
     /// （控制器持有本管理器，若这里强引用回去就构成引用环）
     private weak var viewController: SKDialogViewController?
 
-    /// 容器视图的约束引用，用于动态更新。
-    /// - Note: 数组实际同时持有**背景遮罩**与**容器**两部分的约束（见 setupContainerConstraints），
-    ///   命名沿用了历史叫法。因此 clearConstraints() 会把两部分一起清掉，
-    ///   而 removePositionConstraints() 只在其中筛出尺寸约束予以保留。
+    /// 遮罩约束账本：backgroundView 与控制器 view 的四边等值约束
+    private var backgroundConstraints: [NSLayoutConstraint] = []
+
+    /// 容器约束账本：位置约束 + 尺寸约束
     private var containerConstraints: [NSLayoutConstraint] = []
 
     /// 容器宽度约束（由 addSizeConstraints 建立，由 setContainerWidth 修改）。
@@ -67,13 +73,13 @@ class SKDialogConstraintManager {
 
     // MARK: - Public Methods
 
-    /// 建立整套约束（位置 + 尺寸 + 遮罩），并一次性激活。
+    /// 建立整套约束（遮罩铺满 + 容器位置 + 容器尺寸），并一次性激活。
     ///
     /// 调用时机：SKDialogViewController.viewDidLoad()，紧跟视图层级搭建之后。
     /// 之所以"先清除再建立"：本方法可能在重复配置后再次调用，
     /// 不清除会产生两组锚点不同的约束，直接导致布局冲突与不可预期的位置。
     func setupContainerConstraints() {
-        // 清除之前的约束
+        // 清除之前的约束（连同尺寸约束引用，保证引用与账本始终同源）
         clearConstraints()
 
         // 设置背景遮罩约束（填满整个视图）
@@ -84,44 +90,7 @@ class SKDialogConstraintManager {
 
         // 激活所有约束（统一激活而不是逐个 isActive = true：
         // 一次性激活可以让 AutoLayout 在同一轮求解中看到完整约束集，避免中间态冲突日志）
-        NSLayoutConstraint.activate(containerConstraints)
-    }
-
-    /// 用新的尺寸模式替换现有尺寸约束。
-    ///
-    /// - Note: 库内当前没有调用者。运行时的尺寸变化走的是 SKDialogContainerSizeManager
-    ///   （改 constant，不重建约束），只有在需要整体切换尺寸语义（例如从固定尺寸切换到
-    ///   内容自适应）时才需要调用本方法。
-    /// - Parameter sizeMode: 新的尺寸模式
-    func updateConstraintsForSizeMode(_ sizeMode: SKDialogSizeMode) {
-        guard let viewController = viewController else { return }
-
-        // 移除尺寸相关的约束
-        removeSizeConstraints()
-
-        // 根据新的尺寸模式添加约束
-        addSizeConstraints(for: sizeMode)
-
-        // 更新布局
-        viewController.view.layoutIfNeeded()
-    }
-
-    /// 用新的位置替换现有位置约束（尺寸约束保留）。
-    ///
-    /// - Note: 库内当前没有调用者——弹窗位置在设计上是"展示前确定、展示后不变"的，
-    ///   若要支持运行时换位，调用本方法后还需同步刷新拖拽手势与滑动动画的起点配置。
-    /// - Parameter position: 新的位置
-    func updateConstraintsForPosition(_ position: SKDialogPosition) {
-        guard let viewController = viewController else { return }
-
-        // 移除位置相关的约束
-        removePositionConstraints()
-
-        // 根据新位置添加约束
-        addPositionConstraints(for: position)
-
-        // 更新布局
-        viewController.view.layoutIfNeeded()
+        NSLayoutConstraint.activate(backgroundConstraints + containerConstraints)
     }
 
     // MARK: - Size Constraint Updates（动态改尺寸的落地点）
@@ -166,10 +135,17 @@ class SKDialogConstraintManager {
 
 extension SKDialogConstraintManager {
 
-    /// 清除所有约束（停用 + 清空引用，两边必须成对，否则数组里会残留已停用对象）
+    /// 清除所有约束：停用 + 清空两组账本 + 清空尺寸约束引用。
+    /// 三件事必须成对完成——只清账本会让 `widthConstraint` / `heightConstraint` 指向
+    /// "已停用且不在账本里"的悬空对象，之后 setContainerWidth 会改写一条失效的约束，
+    /// 自检 isSizeConstraintsValid 也会误报不一致。
     private func clearConstraints() {
+        NSLayoutConstraint.deactivate(backgroundConstraints)
         NSLayoutConstraint.deactivate(containerConstraints)
+        backgroundConstraints.removeAll()
         containerConstraints.removeAll()
+        widthConstraint = nil
+        heightConstraint = nil
     }
 
     /// 背景遮罩约束：与控制器 view 四边对齐。
@@ -181,14 +157,12 @@ extension SKDialogConstraintManager {
 
         viewController.backgroundView.translatesAutoresizingMaskIntoConstraints = false
 
-        let backgroundConstraints = [
+        backgroundConstraints = [
             viewController.backgroundView.topAnchor.constraint(equalTo: viewController.view.topAnchor),
             viewController.backgroundView.leadingAnchor.constraint(equalTo: viewController.view.leadingAnchor),
             viewController.backgroundView.trailingAnchor.constraint(equalTo: viewController.view.trailingAnchor),
             viewController.backgroundView.bottomAnchor.constraint(equalTo: viewController.view.bottomAnchor)
         ]
-
-        containerConstraints.append(contentsOf: backgroundConstraints)
     }
 
     /// 容器视图约束：位置 + 尺寸，二者都以 config 的当前取值为准。
@@ -211,8 +185,8 @@ extension SKDialogConstraintManager {
 
         let config = viewController.config
         let containerView = viewController.containerView
-        // 强解包的前提：本方法只在视图已加载后调用（viewDidLoad 触发的约束搭建，
-        // 以及运行时的位置更新），此时 view 必然存在
+        // 强解包的前提：本方法只在视图已加载后调用（viewDidLoad 触发的约束搭建），
+        // 此时 view 必然存在
         let parentView = viewController.view!
 
         var positionConstraints: [NSLayoutConstraint] = []
@@ -315,41 +289,6 @@ extension SKDialogConstraintManager {
 
         containerConstraints.append(contentsOf: sizeConstraints)
     }
-
-    /// 移除尺寸约束（位置约束保持不变）
-    private func removeSizeConstraints() {
-        // 引用与账本要成对清理：只清引用会让数组里留下"已停用但被强持有"的对象，
-        // 后续 clearConstraints()/身份比较都会受影响
-        if let widthConstraint = self.widthConstraint {
-            widthConstraint.isActive = false
-            containerConstraints.removeAll { $0 === widthConstraint }
-            self.widthConstraint = nil
-        }
-
-        if let heightConstraint = self.heightConstraint {
-            heightConstraint.isActive = false
-            containerConstraints.removeAll { $0 === heightConstraint }
-            self.heightConstraint = nil
-        }
-    }
-
-    /// 移除位置约束（尺寸约束保留）
-    private func removePositionConstraints() {
-        // 保留尺寸约束，只移除位置约束
-        // 通过身份比较（===）筛选：约束对象是引用类型，只有同一实例才算"同一个约束"
-        let sizeConstraints = containerConstraints.filter { constraint in
-            return constraint === widthConstraint || constraint === heightConstraint
-        }
-
-        // 停用所有约束
-        NSLayoutConstraint.deactivate(containerConstraints)
-
-        // 只保留尺寸约束
-        containerConstraints = sizeConstraints
-
-        // 重新激活尺寸约束
-        NSLayoutConstraint.activate(containerConstraints)
-    }
 }
 
 // MARK: - Debug & Testing
@@ -359,7 +298,7 @@ extension SKDialogConstraintManager {
 
     /// 当前处于激活状态的约束（用于调试布局问题）
     var activeConstraints: [NSLayoutConstraint] {
-        return containerConstraints.filter { $0.isActive }
+        return (backgroundConstraints + containerConstraints).filter { $0.isActive }
     }
 
     /// 自检：尺寸约束与 `config.sizeMode` 是否一致，且引用与账本是否同源。
@@ -367,7 +306,7 @@ extension SKDialogConstraintManager {
     /// 两件事一起查：
     /// 1. 引用与账本同源——非 nil 的引用必须已登记且已激活（防止"补建了但没登记"的脱节）
     /// 2. 约束组合与模式一一对应——模式声明固定的方向，必须都有对应约束：
-    ///    `.fixed` 要求两条都在（它现在只表示"两个方向都固定"），
+    ///    `.fixed` 要求两条都在（它只表示"两个方向都固定"），
     ///    `.fixedWidth` / `.fixedHeight` 各要求一条，`.contentAdaptive` 不要求。
     ///    正因为"模式 ↔ 约束"严格对应，这里才能给出确定结论；旧设计允许 `.fixed` 传 nil，
     ///    那种状态下"只建了一条"属于合法，"不一致"就没有唯一答案。
@@ -399,10 +338,14 @@ extension SKDialogConstraintManager {
         }
     }
 
-    /// 自检：容器是否已挂到视图树上，且存在至少一条位置类约束。
+    /// 自检：遮罩是否铺满、容器是否已挂到视图树上，且存在至少一条位置类约束。
     /// 用途是快速判断"布局没生效"是配置问题还是约束没建起来的问题。
     var isConstraintsValid: Bool {
         guard let viewController = viewController else { return false }
+
+        // 遮罩四条边必须齐全且处于激活状态（少了任何一条，遮罩都会塌缩或错位）
+        guard backgroundConstraints.count == 4,
+              backgroundConstraints.allSatisfy({ $0.isActive }) else { return false }
 
         // 检查容器视图是否有父视图
         guard viewController.containerView.superview != nil else { return false }
@@ -410,7 +353,7 @@ extension SKDialogConstraintManager {
         // 检查是否有基本的位置约束
         let hasPositionConstraints = containerConstraints.contains { constraint in
             constraint.firstItem === viewController.containerView &&
-            (constraint.firstAttribute == .centerX || 
+            (constraint.firstAttribute == .centerX ||
              constraint.firstAttribute == .centerY ||
              constraint.firstAttribute == .top ||
              constraint.firstAttribute == .bottom)

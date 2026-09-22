@@ -132,16 +132,19 @@ public struct SKDialogConfig {
     /// 只有落点在容器 frame 之外才会关闭（避免点到容器内的空白区域误关）。
     /// 由于手势挂在 backgroundView 上、容器位于其上层，点击容器本身不会命中该手势，
     /// frame 判断属于双重保险。
-    /// 本属性同时是手势的初始启用状态；库内若在展示后改动它，需调用
-    /// SKDialogGestureHandler.updateGestureStates() 才会同步到已安装的手势。
+    /// 本属性同时是手势的初始启用状态。
+    /// - Important: 配置在**展示前**确定——`SKDialogViewController.config` 对库外只读，
+    ///   手势也只在安装那一刻读一次本值。展示后需要另一种交互形态时，请新建弹窗。
     public var dismissOnBackgroundTap: Bool = true
 
     /// 是否允许拖拽关闭（仅对底部 / 顶部弹窗有意义，居中弹窗没有可拖出的方向）。
     ///
     /// 消费位置：SKDialogGestureHandler.setupPanGesture() / updateGestureStates()，
     /// 判定条件为「position 是 .bottom 或 .top」**且**本开关为 true。
-    /// 手势在展示时（viewDidLoad）读取此值；库内若在展示后改动它，需调用
-    /// SKDialogGestureHandler.updateGestureStates() 才会同步到已安装的手势。
+    /// - Important: 配置在**展示前**确定——手势只在安装那一刻读一次本值，
+    ///   而 `config` 对库外只读，展示后没有运行时同步入口。
+    /// - Note: 内容里若有可滚动的子视图，拖拽会让位给滚动，
+    ///   详见 SKDialogGestureHandler 的手势准入判定。
     public var enablePanGestureDismiss: Bool = true
 
     // MARK: - 安全区域配置
@@ -190,10 +193,10 @@ public struct SKDialogConfig {
 
     /// 创建底部面板配置。
     ///
-    /// 与构建器预设 `SKDialog.bottom()` 的差异（两者默认值并不等价，按需选择）：
+    /// 与构建器预设 `SKDialog.bottom()` 的差异（两者并不等价，按需选择）：
     /// - 本方法只产出配置，不带内容视图，也不做链式预设
-    /// - 圆角默认 16（config 自身默认是 12）
-    /// - 拖拽与安全区沿用 config 默认值，而不是像构建器那样显式开启
+    /// - 圆角默认 16，而 `SKDialog.bottom()` 未显式设置圆角，取 config 默认的 12
+    /// - 其余开关两者取值相同（拖拽关闭与延伸安全区都是 config 默认的开启状态）
     ///
     /// - Parameters:
     ///   - height: 面板高度；传 nil 表示高度由内容自适应
@@ -249,8 +252,8 @@ public struct SKDialogConfig {
 
     /// 创建顶部提示条配置。
     ///
-    /// 与构建器预设 `SKDialog.top()` 的差异同 `bottomSheet`：本方法的圆角为 16、
-    /// 且不额外设置手势与安全区相关开关。
+    /// 与构建器预设 `SKDialog.top()` 基本一致（圆角 16、可拖拽关闭、延伸安全区取默认值），
+    /// 差异只在于本方法只产出配置：不带内容视图，也不做链式预设。
     ///
     /// - Parameters:
     ///   - height: 提示条高度；传 nil 表示高度由内容自适应

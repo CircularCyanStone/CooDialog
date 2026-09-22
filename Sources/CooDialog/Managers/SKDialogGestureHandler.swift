@@ -40,8 +40,11 @@ import UIKit
 
 /// SKDialog手势处理器
 /// 负责管理弹窗的所有手势交互逻辑
+///
+/// - Note: 继承 NSObject 是协议要求（`UIGestureRecognizerDelegate` 继承自 `NSObjectProtocol`），
+///   本类不使用消息转发，继承只为满足这一约束。
 @MainActor
-class SKDialogGestureHandler {
+class SKDialogGestureHandler: NSObject {
 
     // MARK: - Properties
 
@@ -63,6 +66,7 @@ class SKDialogGestureHandler {
     /// - Parameter viewController: 关联的弹窗控制器
     init(viewController: SKDialogViewController) {
         self.viewController = viewController
+        super.init()
     }
 
     // MARK: - Public Methods
@@ -81,10 +85,11 @@ class SKDialogGestureHandler {
         removePanGesture()
     }
 
-    /// 按当前配置刷新手势的启用状态。
-    /// - Note: 库内当前没有调用者。配置是运行时可变的对象，修改
-    ///   `config.dismissOnBackgroundTap` 后必须调用本方法才会同步到已安装的手势上
-    ///   （`setupXxxGesture` 只在安装那一刻读取一次配置）。
+    /// 按当前配置刷新手势的启用状态——`setupXxxGesture` 只在安装那一刻读取一次配置，
+    /// 本方法是事后重新同步的唯一途径。
+    /// - Note: 库内当前没有调用者，也未对外暴露：`config` 在库外只读，
+    ///   宿主无法在展示后改配置，因此暂时没有"需要同步"的场景。
+    ///   若将来开放运行时改配置的入口，应同时把本方法转发到公开 API 上。
     func updateGestureStates() {
         guard let viewController = viewController else { return }
 
@@ -95,6 +100,90 @@ class SKDialogGestureHandler {
         let supportsPanGesture = (viewController.config.position == .bottom || viewController.config.position == .top)
             && viewController.config.enablePanGestureDismiss
         panGesture?.isEnabled = supportsPanGesture
+    }
+}
+
+// MARK: - UIGestureRecognizerDelegate
+
+/// 拖拽手势的准入判定，唯一目的是"把纵向滚动让给内容"。
+///
+/// 背景：拖拽手势挂在 containerView 上，而内容里的 UIScrollView / UITableView 自带 pan 手势。
+/// 两个手势位于不同视图，UIKit 默认会**同时识别**——用户滚动列表时整个面板会跟着一起位移。
+/// 这里在"手势即将开始"时做一次判定，把纵向滚动留给内容。
+extension SKDialogGestureHandler: UIGestureRecognizerDelegate {
+
+    /// 是否允许拖拽手势开始（判定细节见 `shouldBeginPan(at:velocity:position:)`）。
+    /// - Note: 可滚动视图的识别靠 hitTest 链上是否为 UIScrollView，覆盖 UIScrollView /
+    ///   UITableView / UICollectionView / UITextView 及其子类。内部自带滚动但自身不是
+    ///   UIScrollView 的容器（例如 WKWebView）不在判定范围内——这类内容若与拖拽关闭冲突，
+    ///   应由宿主通过 `config.enablePanGestureDismiss` 关掉拖拽。
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let panGesture = gestureRecognizer as? UIPanGestureRecognizer,
+              let viewController = viewController else { return true }
+
+        return shouldBeginPan(
+            at: panGesture.location(in: viewController.containerView),
+            velocity: panGesture.velocity(in: viewController.containerView),
+            position: viewController.config.position
+        )
+    }
+
+    /// 判定规则本体：给定触摸起点、速度与弹窗位置，判断面板是否应当接管这次拖动。
+    ///
+    /// 判定顺序：
+    /// 1. 只接管纵向滑动（横向滑动与"把面板拖出屏幕"无关，交给内容自己处理）
+    /// 2. 触摸起点若落在可纵向滚动的子视图内，且该视图在"关闭方向"上还有滚动余量，则不接管
+    /// 3. 其余情况接管（拖动面板本身）
+    ///
+    /// 第 2 条里的"还有滚动余量"是关键：列表已经滚到顶部时继续下拉，内容已无处可滚，
+    /// 这时应当把面板拖走——这也是 iOS 上贴边面板的常见手感。
+    ///
+    /// - Note: 独立成方法（而不是全部内联在 gestureRecognizerShouldBegin 里）是为了让规则
+    ///   可被直接验证：手势识别器的速度与位置在单元测试里无法伪造。
+    /// - Parameters:
+    ///   - location: 触摸起点（containerView 坐标系）
+    ///   - velocity: 拖动速度（containerView 坐标系）
+    ///   - position: 弹窗停靠位置，决定"关闭方向"
+    /// - Returns: true 表示面板接管这次拖动；false 表示交给内容处理（或方向不是纵向）
+    func shouldBeginPan(at location: CGPoint, velocity: CGPoint, position: SKDialogPosition) -> Bool {
+        // 1) 只接管纵向滑动
+        guard abs(velocity.y) > abs(velocity.x) else { return false }
+
+        guard let containerView = viewController?.containerView else { return true }
+
+        // 2) 触摸起点落在可滚动的子视图内，且该方向还有滚动余量 → 让滚动优先
+        var hitView = containerView.hitTest(location, with: nil)
+        while let view = hitView, view !== containerView {
+            if let scrollView = view as? UIScrollView,
+               scrollViewHasRoom(scrollView, towardDismissal: position) {
+                return false
+            }
+            hitView = view.superview
+        }
+
+        // 3) 其余情况：面板接管拖拽
+        return true
+    }
+
+    /// 滚动视图在"面板关闭方向"上是否还有可滚动的内容。
+    /// 有余量表示这次拖动应该用于滚动内容；没有余量（已到顶 / 已到底）才让面板接管。
+    private func scrollViewHasRoom(_ scrollView: UIScrollView, towardDismissal position: SKDialogPosition) -> Bool {
+        // 内容不足一屏（或只有横向滚动）：纵向没有可滚动的余量
+        guard scrollView.contentSize.height > scrollView.bounds.height else { return false }
+
+        switch position {
+        case .bottom:
+            // 向下拖 = 关闭：只有"不在顶部"时才有内容可以继续向下滚
+            let topOffset = -scrollView.adjustedContentInset.top
+            return scrollView.contentOffset.y > topOffset + 0.5
+        case .top:
+            // 向上拖 = 关闭：只有"不在底部"时才有内容可以继续向上滚
+            let bottomOffset = scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+            return scrollView.contentOffset.y < bottomOffset - 0.5
+        case .center:
+            // 居中弹窗没有可拖出的方向（手势在安装时已被禁用），保守地让滚动优先
+            return true
+        }
     }
 }
 
@@ -164,7 +253,9 @@ extension SKDialogGestureHandler {
         removePanGesture()
 
         // 创建新的拖拽手势
+        // delegate 用于"把纵向滚动让给内容"的判定，见文件下方的 gestureRecognizerShouldBegin
         let panGestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
+        panGestureRecognizer.delegate = self
 
         // 仅底部/顶部弹窗支持拖拽，且需要配置开关允许
         // （展示后再改 enablePanGestureDismiss，需调用 updateGestureStates() 才会同步）

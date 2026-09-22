@@ -20,9 +20,8 @@
  * 等 viewDidLayoutSubviews 拿到真实 bounds 后再精修一次。
  * 换句话说，本类是动画实现"不必自己处理尺寸未知情况"的前提。
  *
- * 包含类型：
- * - SKDialogAnimationStateManager：状态持有者 + 初始状态与偏移量计算
- * - AnimationState（私有）：initial / animating / final 三态
+ * 距离公式不在这里：滑动距离取自 `SlideAnimation.slideOffset`（全库唯一一处），
+ * 与动画实现共用，因此"预置首帧"与"动画起点"不会出现位置跳变。
  *
  * 状态推进（谁改状态、何时改）：
  * - `setupInitialAnimationState()`（由控制器 viewDidLoad 调用）：置为 .initial
@@ -71,10 +70,10 @@ class SKDialogAnimationStateManager {
     /// 目的：让容器上屏的第一帧就位于"该动画的起点"（例如屏幕下方、或缩放 80% 且透明），
     /// 而不是先出现在最终位置再被动画拉走（那会表现为闪一下）。
     ///
-    /// 分组说明：对称的动画类型共用同一套起点设置——
-    /// 垂直与水平滑动共用 setupSlideInitialState（按轴校正留给布局完成后的
-    /// updateSlideOffsetAfterLayout），带淡入的四种共用 setupSlideWithFadeInitialState，
-    /// fadeScale 单独处理，自定义动画不做任何预置（完全交给宿主的实现）。
+    /// 分支只有三种，且与动画类型一一对应：
+    /// - 滑动类（含 WithFade）：按方向摆到屏幕外，WithFade 系列同时把容器与遮罩置透明
+    /// - fadeScale：按配置比例缩小 + 全透明
+    /// - 自定义动画：不做任何预置（完全交给宿主的实现）
     func setupInitialAnimationState() {
         guard let viewController = viewController else { return }
 
@@ -82,21 +81,22 @@ class SKDialogAnimationStateManager {
 
         let animationType = viewController.config.animationType
 
-        switch animationType {
-        case .slideFromBottom, .slideFromTop:
-            setupSlideInitialState()
-        case .slideFromLeft, .slideFromRight:
-            setupSlideInitialState()
-        case .slideFromBottomWithFade, .slideFromTopWithFade:
-            setupSlideWithFadeInitialState()
-        case .slideFromLeftWithFade, .slideFromRightWithFade:
-            setupSlideWithFadeInitialState()
-        case .fadeScale:
-            setupFadeScaleInitialState()
-        case .custom(_):
-            // 自定义动画由外部处理
-            break
+        if let direction = animationType.slideDirection {
+            // 滑动类：方向与是否需要淡入都来自类型元数据，这里不重复判定
+            applySlideTransform(direction: direction)
+            if animationType.fadesContainerWhileSliding {
+                // WithFade 系列：容器与遮罩一起从全透明开始，首帧完全不可见
+                viewController.containerView.alpha = 0
+                viewController.backgroundView.alpha = 0
+            }
+        } else if animationType == .fadeScale {
+            // 缩放类：起点只与比例有关、与容器尺寸无关，因此不存在"布局后需要修正"的问题
+            let initialScale = viewController.config.fadeScaleInitialScale
+            viewController.containerView.transform = CGAffineTransform(scaleX: initialScale, y: initialScale)
+            viewController.containerView.alpha = 0
+            viewController.backgroundView.alpha = 0
         }
+        // .custom：不预置，起点由宿主的实现自行决定
     }
 
     /// 重置到最终状态（把容器恢复到"已就位、完全可见"）。
@@ -117,56 +117,20 @@ class SKDialogAnimationStateManager {
     /// 布局完成后校正滑动偏移量。
     ///
     /// 调用时机：SKDialogViewController.viewDidLayoutSubviews()，每次布局都会走到。
-    /// 作用有两层：
-    /// 1. 用真实的 bounds 重新计算偏移量（viewDidLoad 阶段 bounds 可能为 0，
-    ///    那时算出的起点是错的或退化的）
-    /// 2. **按轴纠正**：setupSlideInitialState()/setupSlideWithFadeInitialState() 统一把偏移
-    ///    写进了 y 分量，而左右滑动的偏移量本应作用在 x 轴上；这里按动画类型选择正确的轴重写
+    /// 作用：用真实 bounds 重算滑动距离并重新施加——viewDidLoad 阶段 bounds 可能是 0，
+    /// 那时算出的起点是退化值（兜底距离），必须跟着实际尺寸更新。
     ///
     /// - Important: guard 把改写限定在"入场完成之前的校正窗口期"内。入场完成后控制器会把状态
-    ///   推进为 .final（见 presentDialog），此后布局不再触碰 transform；
+    ///   推进为 .final（见 presentDialog），此后布局不再触碰 transform。
     ///   若在入场动画进行中发生布局，这里仍会按最新尺寸重设起点——这是期望行为，
     ///   保证滑动起点与容器实际尺寸一致。
     func updateSlideOffsetAfterLayout() {
         guard let viewController = viewController else { return }
         guard currentAnimationState == .initial else { return }
+        // 只有滑动类需要校正：fadeScale 的起点与容器尺寸无关，自定义动画不归库管
+        guard let direction = viewController.config.animationType.slideDirection else { return }
 
-        let animationType = viewController.config.animationType
-
-        // 只有包含滑动的动画类型需要更新偏移量
-        switch animationType {
-        case .slideFromBottom, .slideFromTop, .slideFromLeft, .slideFromRight:
-            let offset = calculateSlideOffset()
-            let transform: CGAffineTransform
-
-            switch animationType {
-            case .slideFromLeft, .slideFromRight:
-                transform = CGAffineTransform(translationX: offset, y: 0)
-            default:
-                transform = CGAffineTransform(translationX: 0, y: offset)
-            }
-
-            viewController.containerView.transform = transform
-        case .slideFromBottomWithFade, .slideFromTopWithFade, .slideFromLeftWithFade, .slideFromRightWithFade:
-            // 与上一个分支逻辑相同（都只改 transform，不动 alpha）：
-            // 淡入动画的透明度由预置状态或动画实现负责，这里不应插手
-            let offset = calculateSlideOffset()
-            let transform: CGAffineTransform
-
-            switch animationType {
-            case .slideFromLeftWithFade, .slideFromRightWithFade:
-                transform = CGAffineTransform(translationX: offset, y: 0)
-            default:
-                transform = CGAffineTransform(translationX: 0, y: offset)
-            }
-
-            viewController.containerView.transform = transform
-        default:
-            // fadeScale / custom：不需要偏移量校正
-            // fadeScale 的起点只与缩放比例有关，与容器尺寸无关，
-            // 因此不存在"布局后需要修正"的问题（这也是它不需要 layoutIfNeeded 的原因）
-            break
-        }
+        applySlideTransform(direction: direction)
     }
 
     /// 标记动画进行中。
@@ -188,89 +152,20 @@ class SKDialogAnimationStateManager {
 
 extension SKDialogAnimationStateManager {
 
-    // MARK: - Slide Animation
-
-    /// 设置滑动动画初始状态。
+    /// 按滑动方向把容器摆到"屏幕外"的起点。
     ///
-    /// - Note: 这里**统一使用 y 轴**（即使当前动画是左右滑动），因为此刻布局未完成、
-    ///   宽度还不可靠；真实的方向与距离交给 updateSlideOffsetAfterLayout() 在布局后按轴重写。
-    ///   中间这一小段时间里水平滑动动画的起点是"竖直偏移"，实际观感不可见（尚未上屏）。
-    private func setupSlideInitialState() {
+    /// 只改 transform，不动 alpha：透明度由预置分支（WithFade）或动画实现自己负责，
+    /// 两处职责分开，避免"布局校正"意外把容器改成透明。
+    private func applySlideTransform(direction: SlideAnimation.Direction) {
         guard let viewController = viewController else { return }
 
-        let offset = calculateSlideOffset()
-        viewController.containerView.transform = CGAffineTransform(translationX: 0, y: offset)
-    }
+        let offset = SlideAnimation.slideOffset(
+            for: direction,
+            containerSize: viewController.containerView.bounds.size,
+            margins: viewController.config.margins
+        )
 
-    /// 计算滑动偏移量。
-    ///
-    /// 返回值的符号即方向：负值表示"从上方/左方进入"，正值表示"从下方/右方进入"。
-    /// 距离取"容器在滑动轴上的尺寸 + 对应方向的 margins"，
-    /// 保证起点完全在屏幕外（即使是贴边面板也不会露出一个边角）。
-    /// - Returns: 偏移量（根据动画类型确定方向）
-    private func calculateSlideOffset() -> CGFloat {
-        guard let viewController = viewController else { return 0 }
-
-        let animationType = viewController.config.animationType
-        let containerSize = viewController.containerView.bounds.size
-        switch animationType {
-        case .slideFromTop, .slideFromTopWithFade:
-            // 从顶部滑入，初始位置在视图上方
-            return -(containerSize.height + viewController.config.margins.top)
-        case .slideFromBottom, .slideFromBottomWithFade:
-            // 从底部滑入，初始位置在视图下方
-            return containerSize.height + viewController.config.margins.bottom
-        case .slideFromLeft, .slideFromLeftWithFade:
-            // 从左侧滑入，初始位置在视图左侧
-            return -(containerSize.width + viewController.config.margins.left)
-        case .slideFromRight, .slideFromRightWithFade:
-            // 从右侧滑入，初始位置在视图右侧
-            return containerSize.width + viewController.config.margins.right
-        default:
-            // fadeScale / custom 无位移
-            return 0
-        }
-    }
-
-    /// 设置"滑动 + 淡入"类动画的初始状态：
-    /// 偏移量作用在 y 轴（轴校正同上），并把容器与遮罩一并置为全透明，
-    /// 使首帧完全不可见——这是 WithFade 系列与纯滑动系列在预置阶段的关键区别。
-    private func setupSlideWithFadeInitialState() {
-        guard let viewController = viewController else { return }
-
-        let offset = calculateSlideOffset()
-        let animationType = viewController.config.animationType
-
-        // 设置滑动偏移
-        let transform: CGAffineTransform
-        switch animationType {
-        case .slideFromLeftWithFade, .slideFromRightWithFade:
-            transform = CGAffineTransform(translationX: offset, y: 0)
-        default:
-            transform = CGAffineTransform(translationX: 0, y: offset)
-        }
-
-        viewController.containerView.transform = transform
-        // 设置初始透明度为0（渐变效果）
-        viewController.containerView.alpha = 0.0
-        viewController.backgroundView.alpha = 0.0
-    }
-
-    // MARK: - FadeScale Animation
-
-    /// 设置 fadeScale 动画的初始状态：按配置比例缩小 + 全透明。
-    ///
-    /// - Note: 这里的缩放值取自 `config.fadeScaleInitialScale`，且 FadeScaleAnimation
-    ///   在动画开始时会读取同一个值作为起点，因此"预置状态 → 动画起点"之间不会出现缩放跳变，
-    ///   宿主自定义该值对入场与退场都会生效。
-    private func setupFadeScaleInitialState() {
-        guard let viewController = viewController else { return }
-
-        // 设置初始缩放和透明度
-        let initialScale = viewController.config.fadeScaleInitialScale
-        viewController.containerView.transform = CGAffineTransform(scaleX: initialScale, y: initialScale)
-        viewController.containerView.alpha = 0.0
-        viewController.backgroundView.alpha = 0.0
+        viewController.containerView.transform = direction.translation(offset: offset)
     }
 }
 

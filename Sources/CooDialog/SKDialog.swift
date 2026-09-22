@@ -151,8 +151,9 @@ public class SKDialog {
     }
 
     /// 设置是否支持拖拽关闭（仅对底部/顶部弹窗有意义）。
-    /// - Note: 手势在展示时按此值安装；展示后修改需调用
-    ///   SKDialogGestureHandler.updateGestureStates() 才会同步到已安装的手势。
+    /// - Note: 手势在展示时按此值安装一次，展示后没有运行时同步入口
+    ///   （`config` 对库外只读）；需要另一种交互形态时请新建弹窗。
+    /// - Note: 内容里若有可滚动的子视图，拖拽会让位给滚动——列表到顶时才接管面板。
     @discardableResult
     public func enablePanGestureDismiss(_ enable: Bool = true) -> SKDialog {
         config.enablePanGestureDismiss = enable

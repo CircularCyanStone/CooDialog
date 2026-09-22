@@ -30,7 +30,8 @@
  * 本管理器负责"尺寸变更流程"本身：计算目标尺寸 → 交给约束管理器落地 → 动画事务 → 回写 config。
  * 约束怎么改（已有约束改 constant、没有则补建并登记）由约束管理器决定，本管理器不持有、
  * 也不修改 NSLayoutConstraint 对象——"约束引用与账本同源"这条不变量因此只有一个维护者。
- * 需要整体切换尺寸语义时，调用约束管理器的 updateConstraintsForSizeMode / updateConstraintsForPosition。
+ * 位置与尺寸模式都在展示前确定，运行时只支持"改尺寸数值"这一种落地方式；
+ * 整体切换位置或尺寸语义不在能力范围内（需要另一种形态时请新建弹窗）。
  *
  * 典型使用场景：内容异步变化后需要重新贴合弹窗尺寸
  * （例如 WebView 加载完成、键盘弹出、列表增删行、文案换行导致高度变化）。
@@ -270,9 +271,16 @@ extension SKDialogContainerSizeManager {
         }
     }
 
-    /// 同时给出宽高时，配置直接收敛为 `.fixed`（两个方向都已有确定值）
+    /// 同时给出宽高时，配置收敛为 `.fixed`（两个方向都已有确定值）。
+    ///
+    /// `.contentAdaptive` 例外——与高度/宽度两条路径用同一条规则：自适应弹窗被钉住尺寸后，
+    /// 模式本身仍是自适应，后续内容变化依然能撑开它。若在这里改成 `.fixed`，
+    /// 一次"按内容重算尺寸"（adjustSizeToContent / forceRefreshSize）就会把它永久钉死，
+    /// 与另外两条路径的行为也不一致。
     private func updateConfigForSizeChange(_ size: CGSize) {
         guard let viewController = viewController else { return }
+
+        if case .contentAdaptive = viewController.config.sizeMode { return }
 
         viewController.config.sizeMode = .fixed(width: size.width, height: size.height)
     }

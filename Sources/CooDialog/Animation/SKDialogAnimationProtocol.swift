@@ -1,6 +1,6 @@
 /**
  * 文件功能描述：
- * 动画能力的「协议层」：定义一次弹窗动画需要实现什么。库内 9 种内置动画与宿主的自定义
+ * 动画能力的「协议层」：定义一次弹窗动画需要实现什么。库内内置动画与宿主的自定义
  * 动画都实现在这套约定之上；协议配套的 UIKit 动画封装见 SKDialogAnimationUtils.swift。
  *
  * 为什么把动画设计成协议而不是让控制器直接写动画代码：
@@ -11,12 +11,12 @@
  *
  * 与其它文件的协作：
  * - SKDialogAnimationType.custom 携带本协议的实现，是唯一的库外扩展入口
- * - SKDialogAnimationManager 按 config.animationType 把调用分发到 9 个内置实现
- *   （无状态 struct，每个类型一个文件，见 Animation/Builtin/）
+ * - SKDialogAnimationManager 负责"类型 → 实现"的映射与分发（映射表在它的文件末尾）
+ * - 内置实现见 Animation/Builtin/：SlideAnimation（8 种滑动类型共用）、FadeScaleAnimation
  * - SKDialogAnimationUtils 提供统一的 UIKit 动画封装（spring / basic / keyframe）
  * - SKDialogAnimationStateManager 负责在动画开始前把容器预置到"起点状态"
  *   （这两个职责必须一致：状态管理器设定的初始 transform 应与动画实现的起点吻合，
- *   否则会出现闪跳）
+ *   否则会出现闪跳。滑动类的距离公式统一在 SlideAnimation.slideOffset）
  */
 
 import UIKit

@@ -1,39 +1,30 @@
 /**
  * 文件功能描述：
  * 弹窗动画的「分发层」：按 config.animationType 把入场 / 退场调用转交给对应的动画实现，
- * 并兜住宿主的自定义实现。9 个内置实现已按类型拆分为独立文件（见 Animation/Builtin/），
- * 本文件只保留分发器。
+ * 并兜住宿主的自定义实现。映射表就是本文件末尾的 `SKDialogAnimationType.makeAnimation()`。
  *
  * 设计原理：分发 + 无状态实现
- * - 分发器本身不写动画，只按 config.animationType 把调用转给对应的实现类型，并兜住 `.custom`。
- *   集中分发的代价是新增内置动画必须改这个 switch，好处是"库支持哪些动画"在编译期穷尽可见。
- * - 每个实现都是**无状态**的 struct：调用前临时 `SlideFromBottomAnimation()` 构造、用完即弃。
- *   动画的参数（时长/阻尼/方向）全部来自 SKDialogConfig，不存在跨次调用的残留，
- *   因此也不会出现"上一次动画的参数污染这一次"的问题。
+ * - 分发器本身不写动画，只把类型映射成实现对象再调用；映射关系全库只有一份，
+ *   新增内置动画只需要改那一处。
+ * - 每个实现都是**无状态**的 struct：调用前临时构造、用完即弃。
+ *   动画参数（时长/阻尼/方向/边距）全部来自 SKDialogConfig，
+ *   因此不存在跨次调用的残留，也不会出现"上一次动画的参数污染这一次"。
  *
- * 所有滑动动画共用的实现模板（Builtin/ 下每个实现只描述与模板的差异）：
- * 1. 先 `containerView.superview?.layoutIfNeeded()` 强制求解一次布局，
- *    保证 containerView.bounds 是真实尺寸而不是 0
- * 2. 算出滑动距离（容器在滑动方向上的尺寸，附 100pt 兜底，见下）
- * 3. 把容器摆到屏幕外的起点位置（transform 位移，需要时再把 alpha 置 0）
- * 4. 用弹簧动画把容器送回 identity，遮罩同步淡入
- *
- * 关于 `max(尺寸, 100)` 兜底的原因：AutoLayout 尚未求解时 bounds 可能为 0，
- * 直接使用会得到"零位移"——弹窗原地淡入，滑动动画静默失效。
- * 兜底值保证即便尺寸未知也至少有一段可见位移；正常布局完成后该值不会触发。
- * 注意并非所有动画实现都调用了 layoutIfNeeded（FadeScaleAnimation 就不需要，
- * 它不依赖容器尺寸），因此这个兜底对它是无关项。
+ * 实现分工（见 Animation/Builtin/）：
+ * - `SlideAnimation`：8 种滑动类型共用一个实现，差异由"方向 + 是否淡入"表达
+ * - `FadeScaleAnimation`：原地缩放淡入
+ * - 宿主的实现：经 `SKDialogAnimationType.custom` 注入，库不做任何包装
  *
  * 与状态管理器的关系：SKDialogAnimationStateManager 会在展示前预置起点状态（防闪现），
- * 而 Builtin/ 下的实现在动画开始时**再次设置起点**。两处同时存在是有意的：
+ * 而各动画实现在动画开始时**再次设置起点**。两处同时存在是有意的：
  * 预置状态负责"上屏首帧不能露出错误位置"，动画实现则保证"无论此前处于什么状态，
  * 动画起点都是正确的"（自包含，不依赖外部状态）。
+ * 前提是两处用同一个距离公式——滑动类统一走 `SlideAnimation.slideOffset`。
  */
 
 import UIKit
 
 /// 弹窗动画分发器。
-///
 ///
 /// 对外可见（public）是为了让宿主在需要时可以单独构造使用；库内由
 /// SKDialogViewController 强引用并委托调用，宿主一般不需要直接接触它。
@@ -51,7 +42,7 @@ public class SKDialogAnimationManager {
 
     // MARK: - Public Methods
 
-    /// 执行入场动画：按配置分发到 9 种内置实现之一，或直接调用自定义实现。
+    /// 执行入场动画：按配置取到对应实现并委托给它。
     ///
     /// - Parameters:
     ///   - backgroundView: 遮罩视图（与容器同步淡入）
@@ -64,89 +55,12 @@ public class SKDialogAnimationManager {
         config: SKDialogConfig,
         completion: @escaping () -> Void
     ) {
-        switch config.animationType {
-        case .slideFromBottom:
-            SlideFromBottomAnimation().performPresentAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .fadeScale:
-            FadeScaleAnimation().performPresentAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromTop:
-            SlideFromTopAnimation().performPresentAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromLeft:
-            SlideFromLeftAnimation().performPresentAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromRight:
-            SlideFromRightAnimation().performPresentAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromBottomWithFade:
-            SlideFromBottomWithFadeAnimation().performPresentAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromTopWithFade:
-            SlideFromTopWithFadeAnimation().performPresentAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromLeftWithFade:
-            SlideFromLeftWithFadeAnimation().performPresentAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromRightWithFade:
-            SlideFromRightWithFadeAnimation().performPresentAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .custom(let animation):
-            // 自定义动画完全由宿主控制：起点、终点、时长、是否动遮罩都不受库约束，
-            // 库只要求它调用 completion。
-            animation.performPresentAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-        }
+        config.animationType.makeAnimation().performPresentAnimation(
+            backgroundView: backgroundView,
+            containerView: containerView,
+            config: config,
+            completion: completion
+        )
     }
 
     /// 执行退场动画：分发逻辑与入场完全对称。
@@ -158,92 +72,52 @@ public class SKDialogAnimationManager {
     ///   - backgroundView: 遮罩视图
     ///   - containerView: 容器视图
     ///   - config: 执行时刻的配置（同上，由调用方传入）
-    ///   - completion: 动画结束回调；控制器会在其中隐藏 window 或 dismiss 控制器
+    ///   - completion: 动画结束回调；控制器会在其中隐藏 window 或把控制器交还给系统 dismiss
     public func performDismissAnimation(
         backgroundView: UIView,
         containerView: UIView,
         config: SKDialogConfig,
         completion: @escaping () -> Void
     ) {
-        switch config.animationType {
-        case .slideFromBottom:
-            SlideFromBottomAnimation().performDismissAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
+        config.animationType.makeAnimation().performDismissAnimation(
+            backgroundView: backgroundView,
+            containerView: containerView,
+            config: config,
+            completion: completion
+        )
+    }
+}
+
+// MARK: - 类型 → 实现（库内唯一的分发表）
+
+extension SKDialogAnimationType {
+
+    /// 把动画类型映射成具体实现。
+    ///
+    /// 分支只有三档：
+    /// - `.custom`：宿主提供的实现，原样使用
+    /// - 8 种滑动类型：共用 `SlideAnimation`，方向与是否淡入由元数据决定
+    /// - 其余内置动画：逐个映射（目前只有 fadeScale）
+    ///
+    /// 扩展指引：新增内置**滑动**类型时，只需在 `slideDirection` 里补一个 case，这里不用动；
+    /// 新增**非滑动**类型时，编译器会因为 switch 不再穷尽而报错——这正是我们要的提醒。
+    func makeAnimation() -> SKDialogAnimationProtocol {
+        switch self {
+        case .custom(let animation):
+            // 自定义动画完全由宿主控制：起点、终点、时长、是否动遮罩都不受库约束，
+            // 库只要求它调用 completion
+            return animation
 
         case .fadeScale:
-            FadeScaleAnimation().performDismissAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
+            return FadeScaleAnimation()
 
-        case .slideFromTop:
-            SlideFromTopAnimation().performDismissAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromLeft:
-            SlideFromLeftAnimation().performDismissAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromRight:
-            SlideFromRightAnimation().performDismissAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromBottomWithFade:
-            SlideFromBottomWithFadeAnimation().performDismissAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromTopWithFade:
-            SlideFromTopWithFadeAnimation().performDismissAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromLeftWithFade:
-            SlideFromLeftWithFadeAnimation().performDismissAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .slideFromRightWithFade:
-            SlideFromRightWithFadeAnimation().performDismissAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
-            )
-
-        case .custom(let animation):
-            animation.performDismissAnimation(
-                backgroundView: backgroundView,
-                containerView: containerView,
-                config: config,
-                completion: completion
+        case .slideFromBottom, .slideFromTop, .slideFromLeft, .slideFromRight,
+             .slideFromBottomWithFade, .slideFromTopWithFade, .slideFromLeftWithFade, .slideFromRightWithFade:
+            // 这 8 个 case 与 slideDirection 的非 nil 集合严格对应（由同一文件的元数据保证）。
+            // 万一元数据被改坏，退化为"从下方滑入"这一无害默认，而不是崩溃
+            return SlideAnimation(
+                direction: slideDirection ?? .bottom,
+                fadesContainer: fadesContainerWhileSliding
             )
         }
     }

@@ -187,8 +187,9 @@ open class SKDialogViewController: UIViewController {
     ///
     /// - Parameter completion: **显示完成**回调（window 上屏后 / present 转场结束后触发）。
     ///   它不是关闭回调——需要"关闭后执行"的逻辑请用 `addCompletionHandler(_:)` 或
-    ///   `dismissDialog(completion:)`；window 创建失败（例如无可用 scene）时同样会被调用，
-    ///   保证"调用必回调"。
+    ///   `dismissDialog(completion:)`；**无法展示时同样会被调用**，保证"调用必回调"，
+    ///   覆盖 window 创建失败（无可用 scene）、目标控制器已 present 其它控制器、
+    ///   以及目标控制器的视图尚未进入 window 层级三种情形。
     /// - Returns: self，便于链式书写（子类可拿到自己的类型）。
     /// - Note: 入场动画统一由 `presentDialog()` 发起，它有 `isPresenting` 去重，
     ///   因此 viewDidAppear 与本方法内的兜底调用不会重复播放动画。
@@ -202,12 +203,26 @@ open class SKDialogViewController: UIViewController {
             // 这里同步再发起一次兜底（isPresenting 去重），覆盖
             // "已上屏但 viewDidAppear 尚未回调"的边缘时序，保证入场一定会被发起
             presentDialog()
-        case .viewController(let viewController):
+        case .viewController(let host):
+            // 下面两种情况下 UIKit 会直接拒绝这次 present，并且**不会调用 completion**：
+            // 1. 目标控制器已经 present 了别的控制器（"already presenting"）
+            // 2. 目标控制器的视图还没进入 window 层级（宿主自己都还没上屏）
+            // 若不预检，这里会静默什么都不发生——宿主既看不到弹窗，也收不到任何通知，
+            // 违背本方法"调用必回调"的约定。
+            // 注：访问 host.view 会让尚未加载的视图开始加载，这与 UIKit 在 present 内部的行为一致。
+            guard host.presentedViewController == nil, host.view.window != nil else {
+                #if DEBUG
+                print("SKDialog: 无法在 \(type(of: host)) 上展示弹窗（已 present 其它控制器，或其视图尚未进入 window 层级）")
+                #endif
+                completion?()
+                return self
+            }
+
             // 使用指定的视图控制器显示（animated: false 禁用系统转场，
             // 入场动画完全由库控制，避免与系统转场叠加）
-            viewController.present(self, animated: false) {
+            host.present(self, animated: false) { [weak self] in
                 completion?()
-                self.presentDialog()
+                self?.presentDialog()
             }
         }
         return self
@@ -217,13 +232,18 @@ open class SKDialogViewController: UIViewController {
     ///
     /// - Parameter completion: 关闭完成的回调闭包，默认为nil
     ///
-    /// 两种收尾路径：
-    /// - window 模式：隐藏并释放自建 window（window 持有控制器，必须在这里解开），
-    ///   随后触发 completionHandler 与传入的 completion
-    /// - viewController 模式：走 `dismiss(animated: false)`，系统转场同样禁用，
-    ///   视觉上只保留库自绘的退场动画；dismiss 的 completion 里再触发上述两个回调
+    /// 收尾时机对两种模式一致：**退场动画结束的那一刻**（此时弹窗在视觉上已经消失），
+    /// 之后各自做自己的清理动作：
+    /// - window 模式：先隐藏并释放自建 window（window 持有控制器，必须在这里解开），再触发回调
+    /// - viewController 模式：先触发回调，再 `dismiss(animated: false)` 把控制器交还给系统
+    ///   （系统转场关闭，视觉上只保留库自绘的退场动画）
     /// - `case .none`：`self` 已被释放时（回调闭包捕获的是 weak self）走这里，
     ///   仅调用传入的 completion，保证调用方的等待流程不会悬空
+    ///
+    /// 为什么不把控制器模式的回调挂在系统 `dismiss` 的 completion 上：
+    /// 那个 completion 何时回调由 UIKit 决定（转场排队时会延后，环境异常时甚至不会回调）。
+    /// 一旦"清理"与"触发"不在同一个同步块里，就会出现"先清空、后触发"——回调永久丢失，
+    /// 且同一个 API 在两种模式下表现不一致。现在的写法不依赖任何系统时序。
     ///
     /// 未处于显示状态时直接回调：保证"调用 dismiss 一定会收到完成通知"，
     /// 宿主因此不必自己判断当前状态。
@@ -231,9 +251,9 @@ open class SKDialogViewController: UIViewController {
     ///   `dismiss()`）都收敛到这一份收尾实现，覆写会让这些路径一起被替换；漏调 super 还会残留
     ///   `isPresenting` 状态、导致 window 无法释放。需要"关闭前拦截"请在调用方判断后再决定是否调用。
     public func dismissDialog(completion: (() -> Void)? = nil) {
-        guard isPresenting else { 
+        guard isPresenting else {
             completion?()
-            return 
+            return
         }
         isPresenting = false
 
@@ -245,34 +265,27 @@ open class SKDialogViewController: UIViewController {
             containerView: containerView,
             config: config
         ) { [weak self] in
-            // 通知动画已完成
-            self?.dismissAnimationDidFinishHandler?()
-
-            // 根据显示模式进行不同的处理
-            switch self?.config.presentationMode {
-            case .window:
-                // 自建 window 由管理器回收（同时把 key window 还给原窗口）
-                self?.hideCustomWindow()
-                // 与 viewController 分支保持一致：收尾后触发 completionHandler，
-                // 使 addCompletionHandler(_:) 注册的回调在 window 模式下同样会被执行
-                self?.completionHandler?()
+            guard let self else {
+                // self 已释放：没有视图需要清理，直接回调调用方
                 completion?()
-            case .viewController(_):
-                // 控制器模式：交给系统 dismiss，转场动画关闭（视觉已由自绘动画完成）
-                self?.dismiss(animated: false) {
-                    self?.completionHandler?()
-                    completion?()
-                }
-            case .none:
-                // self 已释放：没有视图需要清理，直接回调
-                completion?()
-                break
+                return
             }
 
-            // 及时清理所有回调，避免内存泄漏
-            self?.completionHandler = nil
-            self?.dismissAnimationWillStartHandler = nil
-            self?.dismissAnimationDidFinishHandler = nil
+            // 通知动画已完成
+            self.dismissAnimationDidFinishHandler?()
+
+            // 根据显示模式进行不同的清理；两种模式都保证"先做完清理动作、再/同时触发回调"
+            switch self.config.presentationMode {
+            case .window:
+                // 自建 window 由管理器回收（同时把 key window 还给原窗口），
+                // 回收完成后才触发回调——宿主在回调里读到的窗口状态已经是收尾后的
+                self.hideCustomWindow()
+                self.finishDismiss(completion: completion)
+            case .viewController(_):
+                // 先收尾回调，再把控制器交还给系统 dismiss（原因见方法注释）
+                self.finishDismiss(completion: completion)
+                self.dismiss(animated: false)
+            }
         }
     }
 
@@ -328,29 +341,31 @@ open class SKDialogViewController: UIViewController {
     ///   - height: 新的高度值
     ///   - animated: 是否使用动画过渡，默认为 true
     /// - Note: 此方法会同步更新 config.sizeMode 以保持配置一致性
+    ///   （`.contentAdaptive` 除外：自适应弹窗只被临时钉住高度，模式本身不变，内容变化仍能撑开它）
     public func updateContainerHeight(_ height: CGFloat, animated: Bool = true) {
         containerSizeManager.updateContainerHeight(height, animated: animated)
     }
 
     /// 动态更新容器宽度。
-     /// - Parameters:
-     ///   - width: 新的宽度值
-     ///   - animated: 是否使用动画过渡，默认为 true
-     /// - Note: 此方法会同步更新 config.sizeMode 以保持配置一致性
-     public func updateContainerWidth(_ width: CGFloat, animated: Bool = true) {
-         containerSizeManager.updateContainerWidth(width, animated: animated)
-     }
+    /// - Parameters:
+    ///   - width: 新的宽度值
+    ///   - animated: 是否使用动画过渡，默认为 true
+    /// - Note: 此方法会同步更新 config.sizeMode 以保持配置一致性（`.contentAdaptive` 除外，同 `updateContainerHeight`）
+    public func updateContainerWidth(_ width: CGFloat, animated: Bool = true) {
+        containerSizeManager.updateContainerWidth(width, animated: animated)
+    }
 
-     /// 动态更新容器尺寸（宽度和高度）。
-     /// 一次事务内同时改两个方向，因此只会产生一段过渡动画，而不是先宽后高的两段。
-     /// - Parameters:
-     ///   - width: 新的宽度值
-     ///   - height: 新的高度值
-     ///   - animated: 是否使用动画过渡，默认为 true
-     /// - Note: 此方法会同步更新 config.sizeMode 为 .fixed 模式
-     public func updateContainerSize(width: CGFloat, height: CGFloat, animated: Bool = true) {
-         containerSizeManager.updateContainerSize(CGSize(width: width, height: height), animated: animated)
-     }
+    /// 动态更新容器尺寸（宽度和高度）。
+    /// 一次事务内同时改两个方向，因此只会产生一段过渡动画，而不是先宽后高的两段。
+    /// - Parameters:
+    ///   - width: 新的宽度值
+    ///   - height: 新的高度值
+    ///   - animated: 是否使用动画过渡，默认为 true
+    /// - Note: 此方法会把 config.sizeMode 收敛为 `.fixed`（三个尺寸回写入口共用这一条规则）；
+    ///   `.contentAdaptive` 除外，与上面两个方法一致
+    public func updateContainerSize(width: CGFloat, height: CGFloat, animated: Bool = true) {
+        containerSizeManager.updateContainerSize(CGSize(width: width, height: height), animated: animated)
+    }
 }
 
 // MARK: - Internal
@@ -365,7 +380,9 @@ extension SKDialogViewController {
     /// 也不会 present。
     ///
     /// 时序：先触发 "will start" 回调（宿主可在此做数据准备），再执行动画，
-    /// 动画结束时更新内部状态、触发 "did finish" 回调，并立刻清空这两个回调。
+    /// 动画**正常结束**时更新内部状态、触发 "did finish" 回调，并立刻清空这两个回调；
+    /// 若入场被打断（弹窗在入场途中被关闭），则只推进内部状态、不触发 "did finish"
+    /// （此时弹窗已进入关闭流程，再报告"显示完成"会误导宿主）。
     /// 提前置 isPresenting = true 的作用是让重复调用直接返回，
     /// 避免同一弹窗被连续 present 两次（动画会互相打断）。
     func presentDialog() {
@@ -384,8 +401,13 @@ extension SKDialogViewController {
             // 若不推进（状态一直停在 .initial），弹窗显示后任何一次布局都会把容器推回屏幕外，
             // 详见 SKDialogAnimationStateManager 的说明
             self?.animationStateManager.markAnimationCompleted()
-            // 通知动画已完成
-            self?.presentAnimationDidFinishHandler?()
+            // 通知动画已完成——但只在弹窗仍处于展示中时通知：
+            // 入场动画被打断时（用户在 0.3 秒内点了遮罩、或代码紧接着调用了 dismissDialog）
+            // 这个回调同样会到达，而此刻弹窗已经进入关闭流程。注意上一行的状态推进
+            // 不能跟着一起跳过：markAnimationCompleted 是布局校正的开关。
+            if self?.isPresenting == true {
+                self?.presentAnimationDidFinishHandler?()
+            }
             // 及时清理回调，避免内存泄漏
             // 回调通常捕获宿主的 self，若一直留着会延长宿主对象的生命周期；
             // 入场只发生一次，用完即弃是安全的
@@ -398,6 +420,12 @@ extension SKDialogViewController {
     /// 实现完全委托给 SKDialogConstraintManager——约束的账本在它手里，控制器只做转发。
     var isSizeConstraintsValid: Bool {
         constraintManager.isSizeConstraintsValid
+    }
+
+    /// 强制刷新尺寸（调试 / 测试用）：立即重排一次，自适应模式下再按内容重新贴合。
+    /// 同样只做转发，实现见 SKDialogContainerSizeManager.forceRefreshSize。
+    func forceRefreshSize() {
+        containerSizeManager.forceRefreshSize()
     }
 }
 
@@ -451,5 +479,24 @@ extension SKDialogViewController {
     /// 隐藏自定义Window
     private func hideCustomWindow() {
         windowManager.hideCustomWindow()
+    }
+
+    /// 关闭收尾：触发"关闭完成"相关的两个回调，然后清空一次性回调。
+    ///
+    /// 为什么"清空"必须放在这里、而不是在 dismissDialog 的动画回调里同步执行：
+    /// `.viewController` 模式的 `dismiss(animated:)` 何时回调 completion 由 UIKit 决定
+    /// （转场排队时会延后）。若在调用 dismiss 之后、系统回调之前就清空 completionHandler，
+    /// 那次回调就永远不会触发——同一个 API 在两种模式下行为不一致。
+    /// 收敛到本方法后，两条路径都是"先回调、后清理"。
+    private func finishDismiss(completion: (() -> Void)?) {
+        completionHandler?()
+        completion?()
+
+        completionHandler = nil
+        dismissAnimationWillStartHandler = nil
+        dismissAnimationDidFinishHandler = nil
+        // 入场回调正常已在 presentDialog 完成时清空；若入场被打断（尚未清空），这里一并回收
+        presentAnimationWillStartHandler = nil
+        presentAnimationDidFinishHandler = nil
     }
 }

@@ -125,13 +125,15 @@ class SKDialogWindowManager {
             return
         }
 
+        // 先记下所属场景：key 的恢复需要它，而下面的清理会把 customWindow 置空
+        let scene = customWindow?.windowScene ?? activeWindowScene
+
         // 隐藏Window
         customWindow?.isHidden = true
         customWindow?.rootViewController = nil
 
-        // 恢复原始的key window
-        // 用可选链：原 window 可能已被系统回收（weak），此时不恢复也不影响正确性
-        originalKeyWindow?.makeKeyAndVisible()
+        // 恢复原始的key window（取不到原窗口时退化为同场景的其它窗口，见 restoreKeyWindow）
+        restoreKeyWindow(in: scene)
 
         // 清理Window引用（打破 控制器 → 管理器 → window → 控制器 的环）
         customWindow = nil
@@ -204,6 +206,25 @@ extension SKDialogWindowManager {
         // 按 isKeyWindow 筛选而不是取 windows.first：同一场景可能同时存在多个 window
         // （键盘 window、状态栏 window 等），只有 key 的那个才是需要恢复的目标
         return activeWindowScene?.windows.first { $0.isKeyWindow }
+    }
+
+    /// 把 key 状态还给原窗口；原窗口已不可用时退化为同场景的其它可见窗口。
+    ///
+    /// 为什么需要兜底：`originalKeyWindow` 是 weak（它只负责"记住是谁、稍后还给它"，
+    /// 不应延长原窗口的生命周期），而弹窗展示期间原窗口可能已被系统回收、或被宿主隐藏。
+    /// 此时若只做 `originalKeyWindow?.makeKeyAndVisible()`，场景里会没有任何 key window——
+    /// 键盘弹出、输入框聚焦、状态栏等依赖 key window 的行为会一起异常。
+    /// - Parameter scene: 弹窗所属的场景（hideCustomWindow 在清理前记下的）
+    private func restoreKeyWindow(in scene: UIWindowScene?) {
+        if let originalKeyWindow = originalKeyWindow, !originalKeyWindow.isHidden {
+            originalKeyWindow.makeKeyAndVisible()
+            return
+        }
+
+        // 兜底：同场景里任取一个可见窗口（排除即将失效的自建 window 自己）
+        scene?.windows
+            .first { $0 !== customWindow && !$0.isHidden }?
+            .makeKeyAndVisible()
     }
 }
 
