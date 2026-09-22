@@ -14,6 +14,8 @@ import UIKit
 /// 6. 同一个构建器展示两次，两个弹窗的配置必须互相独立（值语义，不再共享同一引用）
 /// 7. 动态改尺寸后 sizeMode 的回写仍须对读取 config 的一方可见
 /// 8. `show()` 作为展示入口：按配置分发、显示完成回调必被调用，且不经过 SKDialog 也能直接使用
+/// 9. 自适应模式下动态改尺寸：补建的约束会登记进账本（引用与账本同源），后续尺寸变化只改 constant
+/// 10. 尺寸写法与 sizeMode 一一对应：单向固定 / 全自适应都映射到专属 case，不再出现 `.fixed` 的 nil 组合
 @MainActor
 struct SKDialogBehaviourTests {
 
@@ -217,7 +219,7 @@ struct SKDialogBehaviourTests {
     @Test("动态改尺寸后 sizeMode 的回写对读取 config 的一方可见")
     func sizeModeWriteBackStaysVisible() {
         let (dialog, _) = makeDialog {
-            $0.sizeMode = .widthFixed(200)
+            $0.sizeMode = .fixedWidth(200)
         }
 
         dialog.updateContainerHeight(150, animated: false)
@@ -228,6 +230,59 @@ struct SKDialogBehaviourTests {
         }
         #expect(width == 200)
         #expect(height == 150)
+    }
+
+    @Test("构建器的尺寸写法映射到明确的 sizeMode（不再出现 .fixed 的 nil 组合）")
+    func builderSizeMethodsMapToExplicitModes() {
+        // 每种写法对应哪种模式（映射规则定义在 SKDialogSizeMode 的便利初始化器里，全库只有那一处）
+        let cases: [(name: String, expected: SKDialogSizeMode, build: (SKDialog) -> SKDialog)] = [
+            ("size()", .contentAdaptive, { $0.size() }),
+            ("size(width:)", .fixedWidth(300), { $0.size(width: 300) }),
+            ("size(height:)", .fixedHeight(200), { $0.size(height: 200) }),
+            ("size(width:height:)", .fixed(width: 300, height: 200), { $0.size(width: 300, height: 200) }),
+            ("fixedWidth(_:)", .fixedWidth(300), { $0.fixedWidth(300) }),
+            ("fixedHeight(_:)", .fixedHeight(200), { $0.fixedHeight(200) }),
+            ("contentAdaptive()", .contentAdaptive, { $0.contentAdaptive() })
+        ]
+
+        for item in cases {
+            let dialog = item.build(SKDialog.center()).show()
+            #expect(dialog.config.sizeMode == item.expected, "\(item.name) 应映射为 \(item.expected)")
+            dialog.dismissDialog()
+        }
+    }
+
+    @Test("SKDialogConfig 的工厂方法与构建器走同一套尺寸映射")
+    func configFactoriesMapToExplicitModes() {
+        #expect(SKDialogConfig.centerDialog().sizeMode == .contentAdaptive)
+        #expect(SKDialogConfig.centerDialog(width: 300).sizeMode == .fixedWidth(300))
+        #expect(SKDialogConfig.centerDialog(height: 200).sizeMode == .fixedHeight(200))
+        #expect(SKDialogConfig.centerDialog(width: 300, height: 200).sizeMode == .fixed(width: 300, height: 200))
+
+        #expect(SKDialogConfig.bottomSheet().sizeMode == .contentAdaptive)
+        #expect(SKDialogConfig.bottomSheet(height: 200).sizeMode == .fixedHeight(200))
+        #expect(SKDialogConfig.topSheet().sizeMode == .contentAdaptive)
+        #expect(SKDialogConfig.topSheet(height: 200).sizeMode == .fixedHeight(200))
+    }
+
+    @Test("自适应模式下动态改高度：补建的约束只建一条并被复用，且引用与账本不脱节")
+    func adaptiveHeightConstraintIsBuiltOnceAndReused() {
+        // contentAdaptive 启动：容器本来没有高度约束，第一次改高度必须现场补建
+        let (dialog, _) = makeDialog { $0.sizeMode = .contentAdaptive }
+
+        dialog.updateContainerHeight(150, animated: false)
+        // 补建的约束必须已登记进账本（与引用同源），否则整套重建时会残留在容器上
+        #expect(dialog.isSizeConstraintsValid)
+
+        dialog.updateContainerHeight(180, animated: false)
+
+        // 第二次改高度走"改 constant"的轻量路径：复用同一条约束，不重复堆叠
+        let heightConstraints = dialog.containerView.constraints.filter {
+            $0.firstItem === dialog.containerView && $0.firstAttribute == .height
+        }
+        #expect(heightConstraints.count == 1)
+        #expect(heightConstraints.first?.constant == 180)
+        #expect(dialog.isSizeConstraintsValid)
     }
 
     // MARK: - 8. 直接使用 SKDialogViewController（不经过 SKDialog）

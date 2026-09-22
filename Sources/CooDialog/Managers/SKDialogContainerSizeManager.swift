@@ -27,9 +27,10 @@
  *    UIView.animate 的闭包内，UIKit 才会把受影响的 frame 变化插值成过渡动画
  *
  * 与 SKDialogConstraintManager 的分工：
- * 本管理器只使用控制器上已存在的 containerWidthConstraint / containerHeightConstraint 引用
- * 改 constant（或在其为 nil 时补建），不重建整套约束——这样已经激活的位置约束不受影响，
- * 尺寸变化可以平滑过渡。需要整体切换尺寸语义时才回到 SKDialogConstraintManager。
+ * 本管理器负责"尺寸变更流程"本身：计算目标尺寸 → 交给约束管理器落地 → 动画事务 → 回写 config。
+ * 约束怎么改（已有约束改 constant、没有则补建并登记）由约束管理器决定，本管理器不持有、
+ * 也不修改 NSLayoutConstraint 对象——"约束引用与账本同源"这条不变量因此只有一个维护者。
+ * 需要整体切换尺寸语义时，调用约束管理器的 updateConstraintsForSizeMode / updateConstraintsForPosition。
  *
  * 典型使用场景：内容异步变化后需要重新贴合弹窗尺寸
  * （例如 WebView 加载完成、键盘弹出、列表增删行、文案换行导致高度变化）。
@@ -46,6 +47,10 @@ class SKDialogContainerSizeManager {
 
     /// 弱引用主控制器，避免循环引用
     private weak var viewController: SKDialogViewController?
+
+    /// 约束管理器：尺寸变更的唯一落地点（改 constant / 补建 / 登记都在它内部完成）。
+    /// 依赖方向是单向的（本管理器 → 约束管理器），后者不引用本管理器，因此这里用强引用不会成环。
+    private let constraintManager: SKDialogConstraintManager
 
     /// 尺寸变化动画配置。
     ///
@@ -74,9 +79,12 @@ class SKDialogContainerSizeManager {
     // MARK: - Initialization
 
     /// 初始化容器尺寸管理器
-    /// - Parameter viewController: 关联的弹窗控制器
-    init(viewController: SKDialogViewController) {
+    /// - Parameters:
+    ///   - viewController: 关联的弹窗控制器（提供视图、配置与动画语境）
+    ///   - constraintManager: 约束管理器，负责把新尺寸落到约束上
+    init(viewController: SKDialogViewController, constraintManager: SKDialogConstraintManager) {
         self.viewController = viewController
+        self.constraintManager = constraintManager
     }
 
     // MARK: - Public Methods - Height Management
@@ -97,8 +105,8 @@ class SKDialogContainerSizeManager {
             return
         }
 
-        // 更新约束
-        updateHeightConstraint(height)
+        // 更新约束（已有约束改 constant，没有则补建并登记）
+        constraintManager.setContainerHeight(height)
 
         // 更新配置
         updateConfigForHeightChange(height)
@@ -140,8 +148,8 @@ class SKDialogContainerSizeManager {
             return
         }
 
-        // 更新约束
-        updateWidthConstraint(width)
+        // 更新约束（逻辑同高度版本）
+        constraintManager.setContainerWidth(width)
 
         // 更新配置
         updateConfigForWidthChange(width)
@@ -181,8 +189,9 @@ class SKDialogContainerSizeManager {
             return
         }
 
-        // 更新约束
-        updateSizeConstraints(size)
+        // 更新约束（两个方向在同一事务内改完，避免"先宽后高"的两段动画）
+        constraintManager.setContainerWidth(size.width)
+        constraintManager.setContainerHeight(size.height)
 
         // 更新配置
         updateConfigForSizeChange(size)
@@ -214,60 +223,17 @@ class SKDialogContainerSizeManager {
 
 extension SKDialogContainerSizeManager {
 
-    // MARK: - Constraint Updates
-
-    /// 更新（或按需补建）高度约束。
-    ///
-    /// 为什么要处理"没有约束"的情况：`.contentAdaptive` 模式下容器本来没有高度约束，
-    /// 此时要求一个确定高度，就必须现场补一条并把引用交给控制器，
-    /// 后续再改高度才能走"改 constant"的轻量路径。
-    /// 补建的约束是 required 优先级，因此它会胜出内容的内在尺寸，把高度定下来。
-    ///
-    /// - Note: 补建的约束只被激活、未登记进 SKDialogConstraintManager 的约束数组，
-    ///   若之后触发整套约束重建（setupContainerConstraints），它会残留在容器上。
-    private func updateHeightConstraint(_ height: CGFloat) {
-        guard let viewController = viewController else { return }
-
-        if let heightConstraint = viewController.containerHeightConstraint {
-            heightConstraint.constant = height
-        } else {
-            // 如果没有高度约束，创建一个新的
-            let newConstraint = viewController.containerView.heightAnchor.constraint(equalToConstant: height)
-            newConstraint.isActive = true
-            viewController.containerHeightConstraint = newConstraint
-        }
-    }
-
-    /// 更新（或按需补建）宽度约束，逻辑同 updateHeightConstraint。
-    private func updateWidthConstraint(_ width: CGFloat) {
-        guard let viewController = viewController else { return }
-
-        if let widthConstraint = viewController.containerWidthConstraint {
-            widthConstraint.constant = width
-        } else {
-            // 如果没有宽度约束，创建一个新的
-            let newConstraint = viewController.containerView.widthAnchor.constraint(equalToConstant: width)
-            newConstraint.isActive = true
-            viewController.containerWidthConstraint = newConstraint
-        }
-    }
-
-    /// 同时更新宽高约束（两条都走上面的容错路径）
-    private func updateSizeConstraints(_ size: CGSize) {
-        updateWidthConstraint(size.width)
-        updateHeightConstraint(size.height)
-    }
-
     // MARK: - Config Updates
 
     /// 把"高度已确定"这一事实写回配置，使 config.sizeMode 与实际约束保持一致。
     ///
     /// 各分支的语义（这是"回写"而非"覆盖"的原因）：
     /// - `.fixed`：保留原宽度，仅更新高度（宽度是调用方明确指定的，不能丢）
-    /// - `.heightFixed`：更新固定高度（保持"只固定高度"的原始意图）
-    /// - `.widthFixed`：升格为 `.fixed`（因为现在高度也被定死了，不再是"高度随内容"）
+    /// - `.fixedHeight`：更新固定高度（保持"只固定高度"的原始意图）
+    /// - `.fixedWidth`：升格为 `.fixed`（因为现在高度也被定死了，不再是"高度随内容"）
     /// - `.contentAdaptive`：**不改**——自适应弹窗被动态改高度后，仍应允许后续内容继续撑开它；
-    ///   若在这里改成 .fixed，弹窗就被永久钉死，后续内容变化不再生效
+    ///   若在这里改成 `.fixed`，弹窗就被永久钉死，后续内容变化不再生效
+    ///   （这也正是"不允许 `.fixed` 传 nil"的原因：那种写法会在这一步被误判成固定尺寸意图）
     private func updateConfigForHeightChange(_ height: CGFloat) {
         guard let viewController = viewController else { return }
 
@@ -275,9 +241,9 @@ extension SKDialogContainerSizeManager {
         switch viewController.config.sizeMode {
         case .fixed(let width, _):
             viewController.config.sizeMode = .fixed(width: width, height: height)
-        case .heightFixed(_):
-            viewController.config.sizeMode = .heightFixed(height)
-        case .widthFixed(let width):
+        case .fixedHeight(_):
+            viewController.config.sizeMode = .fixedHeight(height)
+        case .fixedWidth(let width):
             viewController.config.sizeMode = .fixed(width: width, height: height)
         case .contentAdaptive:
             // 内容自适应模式不需要更新配置
@@ -293,9 +259,9 @@ extension SKDialogContainerSizeManager {
         switch viewController.config.sizeMode {
         case .fixed(_, let height):
             viewController.config.sizeMode = .fixed(width: width, height: height)
-        case .widthFixed(_):
-            viewController.config.sizeMode = .widthFixed(width)
-        case .heightFixed(let height):
+        case .fixedWidth(_):
+            viewController.config.sizeMode = .fixedWidth(width)
+        case .fixedHeight(let height):
             // 升格为 .fixed：高度仍固定，宽度从此也固定
             viewController.config.sizeMode = .fixed(width: width, height: height)
         case .contentAdaptive:
@@ -461,33 +427,6 @@ extension SKDialogContainerSizeManager {
     var currentContainerSize: CGSize {
         guard let viewController = viewController else { return .zero }
         return viewController.containerView.bounds.size
-    }
-
-    /// 当前尺寸约束的常量值（nil 表示该方向没有约束，即自适应）
-    var currentConstraintValues: (width: CGFloat?, height: CGFloat?) {
-        guard let viewController = viewController else { return (nil, nil) }
-
-        let width = viewController.containerWidthConstraint?.constant
-        let height = viewController.containerHeightConstraint?.constant
-
-        return (width, height)
-    }
-
-    /// 自检：约束引用与 sizeMode 是否一致（可用于测试中断言配置与实现没有脱节）
-    var isSizeConstraintsValid: Bool {
-        guard let viewController = viewController else { return false }
-
-        switch viewController.config.sizeMode {
-        case .fixed(_, _):
-            // 固定尺寸模式要求宽高约束都存在
-            return viewController.containerWidthConstraint != nil && viewController.containerHeightConstraint != nil
-        case .widthFixed(_):
-            return viewController.containerWidthConstraint != nil
-        case .heightFixed(_):
-            return viewController.containerHeightConstraint != nil
-        case .contentAdaptive:
-            return true // 内容自适应模式不需要固定约束
-        }
     }
 
     /// 强制刷新尺寸：立即重排一次，若处于自适应模式则再按内容重新贴合。

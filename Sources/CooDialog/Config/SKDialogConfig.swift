@@ -60,9 +60,11 @@ public struct SKDialogConfig {
     /// 拖拽方向判定（SKDialogGestureHandler）、滑动动画偏移方向（SKDialogAnimationStateManager）。
     public var position: SKDialogPosition = .center
 
-    /// 尺寸模式。统一管理宽高，避免"分别设置宽高"带来的非法组合。
+    /// 尺寸模式。4 种状态与 4 个 case 一一对应（见 SKDialogSizeMode），同一意图只有一种写法。
     /// 消费位置：SKDialogConstraintManager.addSizeConstraints()；
-    /// 动态改尺寸时会被 SKDialogContainerSizeManager 回写以保持与实际约束一致。
+    /// 动态改尺寸时会被 SKDialogContainerSizeManager 回写以保持与实际约束一致——
+    /// 回写只做明确升格（`.fixedWidth` / `.fixedHeight` 在另一个方向也被定死后变为 `.fixed`），
+    /// 不会产生模棱两可的组合。
     public var sizeMode: SKDialogSizeMode = .contentAdaptive
 
     /// 容器相对屏幕边缘的边距。
@@ -207,7 +209,8 @@ public struct SKDialogConfig {
     ) -> SKDialogConfig {
         var config = SKDialogConfig()
         config.position = .bottom
-        config.sizeMode = height != nil ? .heightFixed(height!) : .contentAdaptive
+        // 只给高度方向：nil → .contentAdaptive，有值 → .fixedHeight（宽度始终随内容）
+        config.sizeMode = SKDialogSizeMode(width: nil, height: height)
         config.cornerRadius = cornerRadius
         config.margins = margins
         config.animationType = .slideFromBottom
@@ -217,14 +220,12 @@ public struct SKDialogConfig {
 
     /// 创建居中对话框配置。
     ///
-    /// - Note: 内部使用 `.fixed(width:height:)`；两个参数都传 nil 时不会添加任何尺寸约束，
-    ///   约束层面的效果与 `.contentAdaptive` 相同。二者的差别在后续的动态改尺寸：
-    ///   `.fixed` 模式会被改写为带具体常量的 `.fixed`，而 `.contentAdaptive` 保持不变。
-    ///   若希望语义明确、保留"始终自适应"的意图，建议直接使用 `.contentAdaptive`。
+    /// 尺寸映射与 `SKDialog.size(width:height:)` 完全一致（同一处映射规则，见 SKDialogSizeMode 的便利初始化器）：
+    /// 两个方向都给 → `.fixed`；只给宽度 → `.fixedWidth`；只给高度 → `.fixedHeight`；都不给 → `.contentAdaptive`。
     ///
     /// - Parameters:
-    ///   - width: 固定宽度；nil 表示不约束宽度
-    ///   - height: 固定高度；nil 表示不约束高度
+    ///   - width: 固定宽度；nil 表示该方向随内容变化
+    ///   - height: 固定高度；nil 表示该方向随内容变化
     ///   - cornerRadius: 容器圆角
     ///   - margins: 边距，默认四周 40（左右同时充当最大宽度限制）
     ///   - presentationMode: 显示载体，默认独立 window
@@ -238,7 +239,7 @@ public struct SKDialogConfig {
     ) -> SKDialogConfig {
         var config = SKDialogConfig()
         config.position = .center
-        config.sizeMode = .fixed(width: width, height: height)
+        config.sizeMode = SKDialogSizeMode(width: width, height: height)
         config.cornerRadius = cornerRadius
         config.margins = margins
         config.animationType = .fadeScale
@@ -265,7 +266,8 @@ public struct SKDialogConfig {
     ) -> SKDialogConfig {
         var config = SKDialogConfig()
         config.position = .top
-        config.sizeMode = height != nil ? .heightFixed(height!) : .contentAdaptive
+        // 只给高度方向：nil → .contentAdaptive，有值 → .fixedHeight（宽度始终随内容）
+        config.sizeMode = SKDialogSizeMode(width: nil, height: height)
         config.cornerRadius = cornerRadius
         config.margins = margins
         config.animationType = .slideFromTop

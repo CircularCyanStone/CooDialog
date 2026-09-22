@@ -19,7 +19,8 @@ import UIKit
 ///   因此不支持拖拽关闭。
 /// - `.bottom` / `.top`：属于"贴边面板"，支持拖拽关闭，并可选择是否延伸进安全区
 ///   （见 `SKDialogConfig.extendToSafeArea`）。
-public enum SKDialogPosition {
+/// 遵循 Equatable（无关联值，自动合成）：宿主与测试可以直接比较两个位置是否相同。
+public enum SKDialogPosition: Equatable {
     case center     // 屏幕居中，垂直方向无 margins 约束，不支持拖拽
     case bottom     // 贴屏幕底部，支持向下拖拽关闭
     case top        // 贴屏幕顶部，支持向上拖拽关闭

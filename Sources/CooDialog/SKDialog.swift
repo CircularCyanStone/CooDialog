@@ -167,34 +167,42 @@ public class SKDialog {
         return self
     }
 
-    /// 设置固定尺寸（nil 的维度表示该方向不限制）。
-    /// - Important: 会覆盖之前的尺寸设置——内部直接改写 `config.sizeMode` 为 `.fixed`，
-    ///   调用顺序靠后的尺寸方法生效。
+    /// 设置尺寸：按"给了几个方向"映射到对应的尺寸模式，不存在模棱两可的组合——
+    /// 两个方向都给 → `.fixed`；只给宽度 → `.fixedWidth`（高度随内容）；
+    /// 只给高度 → `.fixedHeight`（宽度随内容）；都不给 → `.contentAdaptive`。
+    ///
+    /// - Important: 会覆盖之前的尺寸设置——`size` / `fixedWidth` / `fixedHeight` /
+    ///   `contentAdaptive` 改写的是同一个 `config.sizeMode`，调用顺序靠后的生效。
+    /// - Note: 映射规则只在 SKDialogSizeMode 的便利初始化器里定义一次，
+    ///   SKDialogConfig 的工厂方法（centerDialog / bottomSheet / topSheet）走的是同一条规则。
+    /// - Parameter width: 固定宽度；nil 表示该方向随内容变化
+    /// - Parameter height: 固定高度；nil 表示该方向随内容变化
     @discardableResult
     public func size(width: CGFloat? = nil, height: CGFloat? = nil) -> SKDialog {
-        config.sizeMode = .fixed(width: width, height: height)
+        config.sizeMode = SKDialogSizeMode(width: width, height: height)
         return self
     }
 
     /// 设置为内容自适应：不施加任何尺寸约束，容器由内容的内在尺寸撑开。
     /// 内容必须自带内在尺寸或自身约束，否则容器会塌缩到 0 尺寸。
+    /// 与 `.contentAdaptive` 是同一件事的两种入口（`size()` 不传参数等价于此）。
     @discardableResult
     public func contentAdaptive() -> SKDialog {
         config.sizeMode = .contentAdaptive
         return self
     }
 
-    /// 设置固定宽度，高度仍随内容变化。
+    /// 设置固定宽度，高度仍随内容变化（等价于 `size(width:)`）。
     @discardableResult
     public func fixedWidth(_ width: CGFloat) -> SKDialog {
-        config.sizeMode = .widthFixed(width)
+        config.sizeMode = .fixedWidth(width)
         return self
     }
 
-    /// 设置固定高度，宽度仍随内容变化。
+    /// 设置固定高度，宽度仍随内容变化（等价于 `size(height:)`）。
     @discardableResult
     public func fixedHeight(_ height: CGFloat) -> SKDialog {
-        config.sizeMode = .heightFixed(height)
+        config.sizeMode = .fixedHeight(height)
         return self
     }
 

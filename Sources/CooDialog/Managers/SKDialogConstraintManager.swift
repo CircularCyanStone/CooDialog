@@ -25,8 +25,9 @@
  *
  * 与 SKDialogContainerSizeManager 的分工（容易混淆，注意区分）：
  * - 本管理器负责**结构性**的约束：新建、成组替换（配置改变、需要重建约束体系的场景）
- * - 容器尺寸的动态调整（改 constant 而不重建）由 SKDialogContainerSizeManager 负责，
- *   它依赖本管理器回写到控制器上的 containerWidthConstraint / containerHeightConstraint 引用
+ * - 容器尺寸的动态调整（改 constant 而不重建）也由本管理器落地
+ *   （setContainerWidth / setContainerHeight），由 SKDialogContainerSizeManager 按宿主调用驱动；
+ *   后者负责计算内容尺寸、动画过渡与 config 回写，不直接接触 NSLayoutConstraint 对象
  */
 
 import UIKit
@@ -47,6 +48,14 @@ class SKDialogConstraintManager {
     ///   命名沿用了历史叫法。因此 clearConstraints() 会把两部分一起清掉，
     ///   而 removePositionConstraints() 只在其中筛出尺寸约束予以保留。
     private var containerConstraints: [NSLayoutConstraint] = []
+
+    /// 容器宽度约束（由 addSizeConstraints 建立，由 setContainerWidth 修改）。
+    /// - Important: 不变量——`widthConstraint` 非 nil ⟺ 它已登记进 `containerConstraints` 且 `isActive`。
+    ///   引用与账本必须同属一个类型，否则第二个写入方（例如"改尺寸"路径）会破坏这条不变量。
+    private var widthConstraint: NSLayoutConstraint?
+
+    /// 容器高度约束（语义与不变量同 widthConstraint）
+    private var heightConstraint: NSLayoutConstraint?
 
     // MARK: - Initialization
 
@@ -113,6 +122,43 @@ class SKDialogConstraintManager {
 
         // 更新布局
         viewController.view.layoutIfNeeded()
+    }
+
+    // MARK: - Size Constraint Updates（动态改尺寸的落地点）
+
+    /// 设置容器宽度：已有宽度约束时只改 constant（不重建约束，尺寸变化才能动画过渡）；
+    /// 没有时（内容自适应模式）补建一条并**登记进账本**——补建与登记写在同一处，
+    /// 保证不变量（引用非 nil ⟺ 已登记且已激活）始终只有一个维护者。
+    ///
+    /// 调用方：SKDialogContainerSizeManager（宿主改尺寸时按需驱动）。
+    func setContainerWidth(_ width: CGFloat) {
+        guard let viewController = viewController else { return }
+
+        if let existing = widthConstraint {
+            existing.constant = width
+            return
+        }
+
+        // 补建的约束是 required 优先级：它会胜出内容的内在尺寸，把宽度定下来
+        let newConstraint = viewController.containerView.widthAnchor.constraint(equalToConstant: width)
+        newConstraint.isActive = true
+        containerConstraints.append(newConstraint)
+        widthConstraint = newConstraint
+    }
+
+    /// 设置容器高度，逻辑与 setContainerWidth 完全对称。
+    func setContainerHeight(_ height: CGFloat) {
+        guard let viewController = viewController else { return }
+
+        if let existing = heightConstraint {
+            existing.constant = height
+            return
+        }
+
+        let newConstraint = viewController.containerView.heightAnchor.constraint(equalToConstant: height)
+        newConstraint.isActive = true
+        containerConstraints.append(newConstraint)
+        heightConstraint = newConstraint
     }
 }
 
@@ -213,7 +259,7 @@ extension SKDialogConstraintManager {
         }
 
         // 添加水平边距约束
-        // 用不等式（>= / <=）而不是等值：容器宽度可能是内容决定的（contentAdaptive / heightFixed），
+        // 用不等式（>= / <=）而不是等值：容器宽度可能是内容决定的（.contentAdaptive / .fixedHeight），
         // 等值约束会与"宽度由内容撑开"打架。不等式只规定上下限——
         // 既实现了左右留白的最小保护，又给内容自适应留出自由度
         positionConstraints.append(contentsOf: [
@@ -228,10 +274,10 @@ extension SKDialogConstraintManager {
     ///
     /// - Parameter sizeMode: 尺寸模式
     ///
-    /// 关键副作用：把创建的宽度/高度约束**回写**到控制器上
-    /// （`containerWidthConstraint` / `containerHeightConstraint`）。
-    /// 这两个引用是 SKDialogContainerSizeManager 后续动态改尺寸的抓手——
-    /// 有了它们才能"只改 constant 不重建约束"，从而让尺寸变化可以动画过渡。
+    /// 关键副作用：把创建的宽度/高度约束**登记**在本类型的
+    /// `widthConstraint` / `heightConstraint` 上（与 `containerConstraints` 账本同源）。
+    /// 这两个引用是"改 constant 不重建约束"的抓手——有了它们，
+    /// 运行时的尺寸变化（setContainerWidth / setContainerHeight）才能走轻量路径并动画过渡。
     private func addSizeConstraints(for sizeMode: SKDialogSizeMode) {
         guard let viewController = viewController else { return }
 
@@ -240,32 +286,28 @@ extension SKDialogConstraintManager {
 
         switch sizeMode {
         case .fixed(let width, let height):
-            // 只对非 nil 的维度加约束：nil 表示"该方向不限制"，
-            // 于是在约束层面就退化为自适应，与 contentAdaptive 的效果一致
-            if let width = width {
-                let widthConstraint = containerView.widthAnchor.constraint(equalToConstant: width)
-                sizeConstraints.append(widthConstraint)
-                viewController.containerWidthConstraint = widthConstraint
-            }
-            if let height = height {
-                let heightConstraint = containerView.heightAnchor.constraint(equalToConstant: height)
-                sizeConstraints.append(heightConstraint)
-                viewController.containerHeightConstraint = heightConstraint
-            }
+            // 两个方向都固定：两条约束都建
+            // （case 本身保证这里一定有值，不存在"只给一个方向"的可能）
+            let widthConstraint = containerView.widthAnchor.constraint(equalToConstant: width)
+            let heightConstraint = containerView.heightAnchor.constraint(equalToConstant: height)
+            sizeConstraints.append(contentsOf: [widthConstraint, heightConstraint])
+            self.widthConstraint = widthConstraint
+            self.heightConstraint = heightConstraint
 
-        case .widthFixed(let width):
-            sizeConstraints.append(containerView.widthAnchor.constraint(equalToConstant: width))
-            // 刚 append 的就是本模式新增的唯一宽度约束，直接取 last 回写引用
-            viewController.containerWidthConstraint = sizeConstraints.last
+        case .fixedWidth(let width):
+            // 只固定宽度：高度方向不加约束，交给内容的内在尺寸决定
+            let widthConstraint = containerView.widthAnchor.constraint(equalToConstant: width)
+            sizeConstraints.append(widthConstraint)
+            self.widthConstraint = widthConstraint
 
-        case .heightFixed(let height):
-            sizeConstraints.append(containerView.heightAnchor.constraint(equalToConstant: height))
-            viewController.containerHeightConstraint = sizeConstraints.last
+        case .fixedHeight(let height):
+            // 只固定高度：宽度方向不加约束，交给内容的内在尺寸决定
+            let heightConstraint = containerView.heightAnchor.constraint(equalToConstant: height)
+            sizeConstraints.append(heightConstraint)
+            self.heightConstraint = heightConstraint
 
         case .contentAdaptive:
-            // 内容自适应模式不需要额外的尺寸约束
-            // 容器会根据内容自动调整大小
-            // 这是本库"自适应"的实现方式：不计算 frame，而是完全交给 AutoLayout 的内在尺寸链——
+            // 不加任何尺寸约束，完全交给 AutoLayout 的内在尺寸链：
             // contentView 被约束到容器四边（见 addContentView），因此它的内在尺寸会向上传递，
             // 撑开容器；任何缺少内在尺寸/约束的内容都会让容器退化为 0 尺寸
             break
@@ -276,21 +318,18 @@ extension SKDialogConstraintManager {
 
     /// 移除尺寸约束（位置约束保持不变）
     private func removeSizeConstraints() {
-        guard let viewController = viewController else { return }
-
-        // 移除并重置约束引用
-        // 引用与数组内容都要清理：只清引用会让数组里留下"已停用但被强持有"的对象，
-        // 后续 clearConstraints()/去重判断都会受影响
-        if let widthConstraint = viewController.containerWidthConstraint {
+        // 引用与账本要成对清理：只清引用会让数组里留下"已停用但被强持有"的对象，
+        // 后续 clearConstraints()/身份比较都会受影响
+        if let widthConstraint = self.widthConstraint {
             widthConstraint.isActive = false
             containerConstraints.removeAll { $0 === widthConstraint }
-            viewController.containerWidthConstraint = nil
+            self.widthConstraint = nil
         }
 
-        if let heightConstraint = viewController.containerHeightConstraint {
+        if let heightConstraint = self.heightConstraint {
             heightConstraint.isActive = false
             containerConstraints.removeAll { $0 === heightConstraint }
-            viewController.containerHeightConstraint = nil
+            self.heightConstraint = nil
         }
     }
 
@@ -299,8 +338,7 @@ extension SKDialogConstraintManager {
         // 保留尺寸约束，只移除位置约束
         // 通过身份比较（===）筛选：约束对象是引用类型，只有同一实例才算"同一个约束"
         let sizeConstraints = containerConstraints.filter { constraint in
-            return constraint === viewController?.containerWidthConstraint ||
-                   constraint === viewController?.containerHeightConstraint
+            return constraint === widthConstraint || constraint === heightConstraint
         }
 
         // 停用所有约束
@@ -322,6 +360,43 @@ extension SKDialogConstraintManager {
     /// 当前处于激活状态的约束（用于调试布局问题）
     var activeConstraints: [NSLayoutConstraint] {
         return containerConstraints.filter { $0.isActive }
+    }
+
+    /// 自检：尺寸约束与 `config.sizeMode` 是否一致，且引用与账本是否同源。
+    ///
+    /// 两件事一起查：
+    /// 1. 引用与账本同源——非 nil 的引用必须已登记且已激活（防止"补建了但没登记"的脱节）
+    /// 2. 约束组合与模式一一对应——模式声明固定的方向，必须都有对应约束：
+    ///    `.fixed` 要求两条都在（它现在只表示"两个方向都固定"），
+    ///    `.fixedWidth` / `.fixedHeight` 各要求一条，`.contentAdaptive` 不要求。
+    ///    正因为"模式 ↔ 约束"严格对应，这里才能给出确定结论；旧设计允许 `.fixed` 传 nil，
+    ///    那种状态下"只建了一条"属于合法，"不一致"就没有唯一答案。
+    var isSizeConstraintsValid: Bool {
+        guard let viewController = viewController else { return false }
+
+        // 1) 引用与账本同源
+        if let widthConstraint = widthConstraint,
+           !(widthConstraint.isActive && containerConstraints.contains { $0 === widthConstraint }) {
+            return false
+        }
+        if let heightConstraint = heightConstraint,
+           !(heightConstraint.isActive && containerConstraints.contains { $0 === heightConstraint }) {
+            return false
+        }
+
+        // 2) 约束组合与 sizeMode 一一对应
+        switch viewController.config.sizeMode {
+        case .fixed(_, _):
+            return widthConstraint != nil && heightConstraint != nil
+        case .fixedWidth(_):
+            return widthConstraint != nil
+        case .fixedHeight(_):
+            return heightConstraint != nil
+        case .contentAdaptive:
+            // 不要求固定约束：运行中被 updateContainerHeight / updateContainerWidth 临时钉住某个方向时，
+            // 补建的约束只是"当前尺寸状态"，模式本身仍是自适应，因此同样算一致
+            return true
+        }
     }
 
     /// 自检：容器是否已挂到视图树上，且存在至少一条位置类约束。

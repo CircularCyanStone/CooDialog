@@ -10,10 +10,15 @@
 // 设计原理（本类在架构中的定位：编排者，而非实现者）：
 // 一个弹窗要同时处理"位置约束、尺寸变化、手势、动画状态、window 生命周期、内容装载"六件事，
 // 全塞进一个控制器会变成难以维护的巨型类。因此这里按关注点拆成 6 个管理器，控制器本身只保留：
-// 1. 共享的视图与状态（containerView / backgroundView / 尺寸约束引用 / 显示状态）
+// 1. 共享的视图与状态（containerView / backgroundView / config / 显示状态与本类回调）
 // 2. 生命周期编排（何时搭建 UI、何时播放入场动画、关闭时按模式分流收尾）
 // 3. 对外 API 的稳定门面（转发给管理器，宿主无需感知内部拆分）
-// 管理器之间不互相引用，一律通过控制器上的这些共享属性协作，依赖关系因此保持单层。
+// 管理器之间的依赖必须单向且无环：目前只有"尺寸管理器 → 约束管理器"这一条
+//（尺寸变更必须落到约束上，这是二者本征的协作方向，且不构成环）。
+// 视图、配置、展示状态等跨管理器共享的对象仍一律通过控制器协作；
+// 但某个管理器的内部状态（例如约束引用）不再提升到控制器上——那会让同一份状态出现两个维护者。
+// 对应地，SKDialogConstraintManager 持有约束引用与账本（containerConstraints），
+// 并对尺寸管理器开放 setContainerWidth / setContainerHeight 作为唯一的修改入口。
 //
 // 生命周期关键时序（理解本文件的主线）：
 // init(config:) → viewDidLoad（建 UI → 建约束 → 装手势 → 预置动画起点）
@@ -64,8 +69,14 @@ open class SKDialogViewController: UIViewController {
     /// Window模式管理器：自建 window 的显示与释放
     private lazy var windowManager: SKDialogWindowManager = SKDialogWindowManager(viewController: self)
 
-    /// 容器尺寸管理器：运行时动态改尺寸（改 constant + 回写配置 + 动画过渡）
-    private lazy var containerSizeManager: SKDialogContainerSizeManager = SKDialogContainerSizeManager(viewController: self)
+    /// 容器尺寸管理器：运行时动态改尺寸（计算内容尺寸 + 动画过渡 + 回写配置）。
+    /// 约束的落地（改 constant / 补建 / 登记）全部交给它依赖的约束管理器，
+    /// 因此本管理器不再需要控制器暴露任何约束引用。这里访问另一个 lazy 属性是允许的
+    /// （lazy 初始化器在首次访问时求值，此刻 self 已完全初始化，约束管理器会按需先建好）。
+    private lazy var containerSizeManager: SKDialogContainerSizeManager = SKDialogContainerSizeManager(
+        viewController: self,
+        constraintManager: self.constraintManager
+    )
 
     /// 容器视图：承载宿主提供的内容，圆角/阴影/动画都作用在它身上。
     /// 公开为 let（引用不可变、对象可变）：宿主可在外层做进一步视觉定制；
@@ -74,18 +85,6 @@ open class SKDialogViewController: UIViewController {
 
     /// 背景遮罩视图：铺满整个控制器 view，负责拦截点击与提供视觉压暗
     public let backgroundView: UIView = UIView()
-
-    // 以下两个约束引用是 internal（非宿主 API）：它们是"约束管理器 ↔ 尺寸管理器"之间的协作点，
-    // 存储属性不能放进 extension，故留在主类型体内（与 config 的 internal setter 同理）。
-
-    /// 容器宽度约束（由 SKDialogConstraintManager 创建时写入，供 SKDialogContainerSizeManager 动态改 constant；
-    /// nil 表示当前模式没有宽度约束，即宽度由内容决定）
-    /// - Note: 宿主改尺寸请用 `updateContainerWidth(_:animated:)` 等公开方法（会同步回写 config 并做过渡动画），
-    ///   读尺寸请用 `containerView.frame`；直接改这里会绕过两者，让 config 与实际约束不一致。
-    var containerWidthConstraint: NSLayoutConstraint?
-
-    /// 容器高度约束（语义同上）
-    var containerHeightConstraint: NSLayoutConstraint?
 
     /// 是否正在显示（含入场动画中）。
     /// 用途：viewDidAppear 与 show() 都可能发起入场，用它保证入口只被真正执行一次；
@@ -393,6 +392,12 @@ extension SKDialogViewController {
             self?.presentAnimationWillStartHandler = nil
             self?.presentAnimationDidFinishHandler = nil
         }
+    }
+
+    /// 自检：尺寸约束与 `config.sizeMode` 是否一致、引用与账本是否同源（调试 / 测试用）。
+    /// 实现完全委托给 SKDialogConstraintManager——约束的账本在它手里，控制器只做转发。
+    var isSizeConstraintsValid: Bool {
+        constraintManager.isSizeConstraintsValid
     }
 }
 
