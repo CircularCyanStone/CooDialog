@@ -215,7 +215,7 @@
 			mainGroup = FB8CD000305D1A3600DEAB03;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				CD0000000000000000000001 /* XCLocalSwiftPackageReference ".." */,
+				CD0000000000000000000001 /* XCLocalSwiftPackageReference "../.." */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FB8CD00A305D1A3600DEAB03 /* Products */;
@@ -602,7 +602,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		CD0000000000000000000001 /* XCLocalSwiftPackageReference ".." */ = {
+		CD0000000000000000000001 /* XCLocalSwiftPackageReference "../.." */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../..;
 		};
