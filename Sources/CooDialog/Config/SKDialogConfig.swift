@@ -43,8 +43,9 @@ public struct SKDialogConfig {
     // MARK: - 显示模式配置
 
     /// 弹窗的显示载体，默认独立 window。
-    /// 消费位置：SKDialogViewController.show() 与 dismissDialog() 的分支判定、
-    /// SKDialogWindowManager（仅 window 模式参与）。
+    /// 消费位置：SKDialogViewController.presentationHost()（决定由谁来 present 本弹窗，
+    /// 这是两种模式唯一的差异点）与 SKDialogWindowManager（仅 window 模式参与
+    /// 自建 window 的准备与回收）。
     public var presentationMode: SKDialogPresentationMode = .window
 
     /// 自定义 Window 的层级（仅在 window 模式下有意义）。

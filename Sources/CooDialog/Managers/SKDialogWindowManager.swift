@@ -8,15 +8,12 @@
 
 /**
  * 文件功能描述：
- * SKDialog弹窗组件的Window模式管理器，专门负责处理弹窗在独立Window中的显示和管理。
- * 该管理器将Window模式相关的复杂逻辑从主控制器中分离出来，提高代码的可维护性和可读性。
+ * SKDialog弹窗组件的Window模式管理器：负责自建 UIWindow 的创建、配置、上屏与回收。
  *
  * 类型功能描述：
- * - Window创建：创建和配置自定义Window用于弹窗显示
- * - Window管理：管理Window的显示、隐藏和生命周期
- * - 层级管理：处理Window的层级关系，确保弹窗在最顶层显示
- * - 状态跟踪：跟踪Window的显示状态和相关属性
- * - 内存管理：确保Window的正确释放，避免内存泄漏
+ * - Window创建：创建并配置自定义Window（层级、透明背景、跟随场景尺寸）
+ * - 宿主提供：为弹窗准备一个可被 present 的宿主控制器
+ * - Window管理：上屏与回收，以及 key window 的保存与归还
  *
  * 设计原理（为什么用独立 window 而不是把视图 addSubview 到某个控制器上）：
  * 1. 层级最高：UIWindow 位于所有视图控制器之上，弹窗不会被导航栏、TabBar 或已 present
@@ -24,11 +21,20 @@
  * 2. 时机自由：启动早期、网络回调、后台回到前台的瞬间都能展示，不依赖任何 VC 的可见性
  * 代价是 window 的 key 状态与生命周期都得自己管——这正是本类存在的理由
  *
- * 引用关系（其中一环需要在关闭时显式打破）：
- * 控制器 →(强) windowManager →(强) customWindow →(强) rootViewController = 控制器
- * 这个环由 hideCustomWindow() 打破（先清 rootViewController，再释放 customWindow）。
- * 因此**必须保证关闭流程会走到 hideCustomWindow()**：控制器的 dismissDialog() 在 window
- * 模式下会调用它；若绕过关闭流程直接丢弃控制器，环不会被打破，window 与控制器都将泄漏。
+ * 与展示流程的边界（本类不管动画，也不管弹窗的呈现关系）：
+ * 弹窗由 window 里的宿主控制器 present（见 makeHostForPresentation()），
+ * present / dismiss 与入场退场动画全部归 SKDialogViewController 编排。
+ * 本类只负责两件事：**准备一个落在最上层的宿主**、**用完把它收干净**。
+ * 这样 `.window` 与 `.viewController` 两种模式共享同一条展示链路，
+ * 差异只剩"那个宿主是谁"——不再需要各自一套上屏与收尾。
+ *
+ * 引用关系（这条环必须在关闭时显式打破）：
+ * 控制器 →(强) windowManager →(强) customWindow →(强) rootViewController(宿主)
+ *        →(强) presentedViewController(控制器)
+ * 打断顺序固定为：控制器先 dismiss 自己（摘掉 present 关系）→ 本类再清 rootViewController、
+ * 释放 customWindow。因此**必须保证关闭流程会走到 removeCustomWindow()**：
+ * 控制器的 dismissDialog() 在 window 模式下会调用它；若绕过关闭流程直接丢弃控制器，
+ * 环不会被打破，window 与控制器都将泄漏。
  */
 
 import UIKit
@@ -46,10 +52,11 @@ class SKDialogWindowManager {
     /// 自定义Window实例（强引用：由本类负责它的存活与释放）
     private var customWindow: UIWindow?
 
-    /// Window是否当前可见。
-    /// 用独立布尔状态而不是"customWindow 是否非空"来判断：创建成功与显示成功是两件事，
-    /// 且本类以"是否可见"作为幂等依据（重复 show 直接返回、未显示时的 hide 直接返回）。
-    private var isWindowVisible: Bool = false
+    /// 自建 window 的根控制器，也就是"由谁来 present 弹窗"。
+    /// 它同时是本类唯一的展示状态：非 nil ⟺ 自建 window 已上屏、随时可以承载弹窗。
+    /// 之所以不把弹窗直接设成 rootViewController：那样 window 模式会变成另一套展示机制，
+    /// 与 `.viewController` 模式的入场时序、关闭收尾都要各写一遍（见文件头说明）。
+    private(set) var hostViewController: UIViewController?
 
     /// 原始的key window（用于恢复）
     /// 用 weak：它只是"记住是谁，稍后还给它"，不需要也不应该延长原 window 的生命周期。
@@ -65,90 +72,69 @@ class SKDialogWindowManager {
 
     // MARK: - Public Methods
 
-    /// 在自定义Window中显示弹窗。
+    /// 准备一个承载弹窗的自建 window，并返回其中的宿主控制器。
     ///
     /// 执行顺序很重要：
-    /// 1. 幂等检查（已在显示则直接返回）
-    /// 2. 创建并配置 window，失败则返回且不改状态
+    /// 1. 幂等检查（已经建过则复用同一个宿主，重复 show 不会建出第二个 window）
+    /// 2. 创建并配置 window；没有可用场景时返回 nil，且不留下任何状态
     /// 3. **先**记录当前 key window，再把自己变成 key（顺序反了就只会记到自己）
-    /// 4. 设置 rootViewController —— 这一步会触发控制器的 viewDidLoad，
-    ///    从而搭建 backgroundView / containerView / 约束 / 手势
-    /// 5. makeKeyAndVisible 上屏，并把状态置为可见
+    /// 4. 设置 rootViewController —— 这一步会触发宿主的 viewDidLoad
+    /// 5. makeKeyAndVisible 上屏，并把宿主记为"已就位"
     ///
-    /// - Parameter completion: 显示完成回调（成功与失败都会调用）
-    /// - Returns: 弹窗是否确实处于"已上屏"状态。`true` 同时覆盖"这次刚上屏"与
-    ///   "此前已经上屏"（幂等路径）；`false` 表示没有可用的 UIWindowScene 或控制器已释放，
-    ///   弹窗此刻并不在屏幕上——调用方必须据此决定是否继续展示流程（例如发起入场动画），
-    ///   否则会给宿主一个"显示完成"的假信号。
-    @discardableResult
-    func showInWindow(completion: (() -> Void)? = nil) -> Bool {
-        guard let viewController = viewController else {
-            completion?()
-            return false
+    /// - Returns: 承载弹窗的宿主控制器；`nil` 表示当前没有可用的 UIWindowScene。
+    func makeHostForPresentation() -> UIViewController? {
+        // 幂等：window 已在，直接复用它的宿主
+        if let host = hostViewController {
+            return host
         }
 
-        // 如果已经在Window中显示，直接返回
-        // 幂等：重复调用不会创建第二个 window，也不会重复挂载控制器
-        if isWindowVisible {
-            completion?()
-            return true
-        }
-
-        // 创建自定义Window；失败时直接返回，不置位 isWindowVisible，
-        // 避免出现「状态为已显示但实际没有 Window」的错乱。
-        // 失败的具体情形：应用没有任何可用的 UIWindowScene（例如场景尚未连接完成）。
         guard createCustomWindow(), let window = customWindow else {
-            completion?()
-            return false
+            return nil
         }
 
         // 保存当前的key window（须在 makeKeyAndVisible 之前保存，否则保存的是自己）
         originalKeyWindow = currentKeyWindow()
 
-        // 设置Window的根控制器
-        window.rootViewController = viewController
+        // 宿主只提供"被 present 的落点"：它自己不画任何东西，
+        // 视觉全部来自弹窗（半透明遮罩 + 容器），因此背景必须是透明的
+        let host = UIViewController()
+        host.view.backgroundColor = .clear
+        window.rootViewController = host
 
         // 显示Window
         window.makeKeyAndVisible()
-        isWindowVisible = true
+        hostViewController = host
 
-        // 调用完成回调
-        completion?()
-        return true
+        return host
     }
 
-    /// 隐藏自定义Window，并把 key 状态归还给原来的 window。
+    /// 回收自建 window，并把 key 状态归还给原来的 window。
+    ///
+    /// 调用时机：`.window` 模式的关闭收尾。此时弹窗已由控制器自己 `dismiss` 掉，
+    /// 这里只负责 window 本身。
     ///
     /// 清理顺序的原因：先 isHidden + 清空 rootViewController，断开
-    /// "window ↔ 控制器"这段强引用；再把 key 状态还给原 window（顺序颠倒的话，
-    /// 中间会出现短暂的"无 key window"状态）；最后清空自身引用与可见标记。
-    ///
-    /// - Parameter completion: 隐藏完成回调
-    func hideCustomWindow(completion: (() -> Void)? = nil) {
+    /// "window → 宿主 → 弹窗"这段强引用；再把 key 状态还给原 window（顺序颠倒的话，
+    /// 中间会出现短暂的"无 key window"状态）；最后清空自身引用与状态。
+    func removeCustomWindow() {
 
-        // 未显示时直接回调：保持"调用必回调"的约定，简化调用方的流程判断
-        guard isWindowVisible else {
-            completion?()
-            return
-        }
+        // 未建过直接返回：调用方不需要判断当前是不是 window 模式
+        guard hostViewController != nil else { return }
 
         // 先记下所属场景：key 的恢复需要它，而下面的清理会把 customWindow 置空
         let scene = customWindow?.windowScene ?? activeWindowScene
 
-        // 隐藏Window
+        // 拆除 window 的整棵视图树（连同宿主与它呈现的弹窗）
         customWindow?.isHidden = true
         customWindow?.rootViewController = nil
 
         // 恢复原始的key window（取不到原窗口时退化为同场景的其它窗口，见 restoreKeyWindow）
         restoreKeyWindow(in: scene)
 
-        // 清理Window引用（打破 控制器 → 管理器 → window → 控制器 的环）
+        // 清理Window引用（打破 控制器 → 管理器 → window → 宿主 → 弹窗 的环）
         customWindow = nil
-        isWindowVisible = false
+        hostViewController = nil
         originalKeyWindow = nil
-
-        // 调用完成回调
-        completion?()
     }
 }
 
@@ -181,7 +167,7 @@ extension SKDialogWindowManager {
         window.windowLevel = viewController?.config.windowLevel ?? (UIWindow.Level.alert + 1)
 
         // 设置背景色为透明
-        // window 自身不画任何东西，视觉全部来自控制器的 view（半透明遮罩 + 容器）；
+        // window 自身不画任何东西，视觉全部来自弹窗的 view（半透明遮罩 + 容器）；
         // 若用不透明色，会把下层界面整个挡住
         window.backgroundColor = UIColor.clear
 
@@ -221,7 +207,7 @@ extension SKDialogWindowManager {
     /// 不应延长原窗口的生命周期），而弹窗展示期间原窗口可能已被系统回收、或被宿主隐藏。
     /// 此时若只做 `originalKeyWindow?.makeKeyAndVisible()`，场景里会没有任何 key window——
     /// 键盘弹出、输入框聚焦、状态栏等依赖 key window 的行为会一起异常。
-    /// - Parameter scene: 弹窗所属的场景（hideCustomWindow 在清理前记下的）
+    /// - Parameter scene: 自建 window 所属的场景（removeCustomWindow 在清理前记下的）
     private func restoreKeyWindow(in scene: UIWindowScene?) {
         if let originalKeyWindow = originalKeyWindow, !originalKeyWindow.isHidden {
             originalKeyWindow.makeKeyAndVisible()
@@ -240,9 +226,9 @@ extension SKDialogWindowManager {
 /// 调试 / 测试用的状态查询与强制清理入口，不参与生产路径。
 extension SKDialogWindowManager {
 
-    /// Window 当前是否可见（即"本管理器认为弹窗正在显示"）
+    /// 自建 window 当前是否已就位（即"本管理器认为弹窗可以显示"）
     var isVisible: Bool {
-        return isWindowVisible
+        return hostViewController != nil
     }
 
     /// 当前持有的自定义 Window
@@ -250,14 +236,14 @@ extension SKDialogWindowManager {
         return customWindow
     }
 
-    /// 强制清理：不做 key window 恢复，也不校验可见状态。
+    /// 强制清理：不做 key window 恢复，也不校验当前状态。
     /// 用于异常路径的兜底释放（例如控制器已被销毁、window 状态不明确时），
     /// 目的只是消除残留引用，避免泄漏。
     func forceCleanup() {
         customWindow?.isHidden = true
         customWindow?.rootViewController = nil
         customWindow = nil
-        isWindowVisible = false
+        hostViewController = nil
         originalKeyWindow = nil
     }
 

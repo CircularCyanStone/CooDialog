@@ -63,7 +63,7 @@ dialog.updateContainerHeight(320)
 | 方法 | 说明 |
 | --- | --- |
 | `position(_:)` | 停靠位置：`.center` / `.bottom` / `.top` |
-| `presentationMode(_:)` | 显示载体：`.window`（默认，独立窗口、层级最高）/ `.viewController(vc)` |
+| `presentationMode(_:)` | 显示载体：`.window`（默认，独立窗口、层级最高）/ `.viewController(vc)`。两者的实现差异只有"由谁来 present 弹窗"，其余完全共用 |
 | `size(width:height:)` | 给几个方向就固定几个方向：都给 → 固定宽高；只给宽 → 宽度固定、高度随内容；都不给 → 完全自适应 |
 | `contentAdaptive()` / `fixedWidth(_:)` / `fixedHeight(_:)` | 上一条的等价写法 |
 | `margins(_:)` | 边距。顶部/底部弹窗：`top`/`bottom` 是贴边留白，`left`/`right` 是最小横向留白；居中弹窗：只用 `left`/`right` 限制最大宽度 |
@@ -159,8 +159,11 @@ struct MyAnimation: SKDialogAnimationProtocol {
 - **值语义**：配置按值交给控制器；同一个构建器展示两次，两个弹窗的配置互不干扰。
 - **拖拽与滚动共存**：面板内容里有可滚动视图时，纵向滚动让位给内容；
   只有当列表已经滚到顶部（或底部）时，拖拽才驱动面板关闭。
-- **`.viewController` 模式的两条前置条件**：目标控制器不能已经 present 别的控制器，
-  且它的视图必须已进入窗口层级。不满足时 `show(completion:)` 会立即回调（不会静默失败），DEBUG 下会打印一行说明。
+- **展示的前置条件**（两种模式通用）：承接弹窗的那个控制器不能已经 present 别的控制器。
+  `.viewController` 模式还要求它的视图已进入窗口层级；`.window` 模式的宿主是现造的，天然满足。
+  不满足时 `show(completion:)` 会立即回调（不会静默失败），DEBUG 下会打印一行说明。
+- **入场动画的时机**：视图真正出现在屏幕上时（`viewDidAppear`）播放，因此无论哪种模式、
+  甚至宿主自己 `present` 控制器，入场都会被发起且只发起一次。
 - **入场回调的时机**：`onPresentAnimationDidFinish` 只在入场动画**正常跑完**时触发；
   若弹窗在入场途中被关闭，它不会触发（此时"显示完成"已经不再成立）。
 - **内容自适应需要内在尺寸**：`.contentAdaptive`（或只固定一个方向）时容器尺寸由内容的内在尺寸决定，

@@ -17,6 +17,11 @@ import UIKit
 /// - `.viewController(vc)`：由指定控制器 present。适合"弹窗明确属于某个页面"的场景，
 ///   可以随该页面一起被销毁；代价是受这个控制器的 present 链约束。
 ///
+/// 实现上两者的差异只有一处——**由谁来 present 弹窗**：`.window` 自建一个 UIWindow，
+/// 并在其中准备一个透明宿主控制器，由它 present；`.viewController` 直接用宿主给的控制器。
+/// 宿主一旦确定，展示动作、入场/退场动画、关闭收尾就完全共用同一条路径
+///（见 SKDialogViewController.show / dismissDialog），不再是两套机制。
+///
 /// - Important: `.viewController` 携带的是**强引用**（枚举关联值本身即强引用；配置虽然是值类型，
 ///   但其中的这个关联值同样会延长该控制器的生命周期）。
 ///   若把 `self` 传给一个被自己长期持有的配置（例如 `self.dialog = SKDialog.center()

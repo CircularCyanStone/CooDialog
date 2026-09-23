@@ -16,11 +16,13 @@ import UIKit
 /// 8. 滑动距离按容器在父视图中的实际位置算：居中弹窗的起点也要完全在屏幕外；
 ///    拖拽后关闭时算出的正是"还差多少"，不会对拖拽位移视而不见
 /// 9. `dismiss(animated:)` 必须收口到库的收尾（否则两种模式的回调与 window 回收都会丢）
+/// 10. 展示链路统一：两种模式都归结为"由某个控制器 present 弹窗"，
+///     `.window` 只是多准备了一个自建 window 与其宿主，不再是另一套上屏机制
 ///
 /// - Note: 与 present 相关的用例需要一个"视图已进入窗口层级"的宿主控制器，
 ///   否则 UIKit 会直接拒绝 present（见第 2 组用例），因此这里用 UIWindow 现搭一个环境。
 /// - Note: window 模式的**成功**路径无法在这里覆盖——测试宿主没有 UIWindowScene，
-///   `showInWindow` 必然走创建失败分支。那条链路需要跑 Examples 下的示例工程验证。
+///   `presentationHost()` 里的自建 window 必然失败。那条链路需要跑 Examples 下的示例工程验证。
 @MainActor
 struct SKDialogRegressionTests {
 
@@ -460,6 +462,29 @@ struct SKDialogRegressionTests {
     }
 
     // MARK: - 10. 关闭入口收口
+
+    // MARK: - 11. 展示链路（两种模式共用同一条 present 路径）
+
+    @Test("show() 把弹窗 present 到宿主上：present 关系是展示的唯一形态")
+    func showPresentsDialogOntoHost() {
+        let (host, window) = makeHostInWindow()
+        let (dialog, _) = makeDialog {
+            $0.presentationMode = .viewController(host)
+            $0.animationType = .fadeScale
+        }
+
+        dialog.show()
+
+        // 弹窗是被"宿主 present 出来"的，而不是被塞成某个容器的 root——
+        // 这正是 window 模式与 viewController 模式的共同点（差异只在宿主是谁）。
+        // - Note: 这里只验证 present 关系；"视图进窗口层级 → viewDidAppear → 入场动画"
+        //   那一段依赖真实转场，测试宿主跑不完（转场不推进），需靠 Examples 的示例工程验证。
+        #expect(dialog.presentingViewController === host)
+        #expect(host.presentedViewController === dialog)
+
+        host.dismiss(animated: false)
+        window.isHidden = true
+    }
 
     @Test("dismiss(animated:) 收口到库的关闭流程，不会绕过收尾")
     func systemDismissSignatureIsRoutedToLibraryTeardown() async throws {
