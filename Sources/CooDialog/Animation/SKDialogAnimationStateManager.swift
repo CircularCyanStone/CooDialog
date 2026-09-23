@@ -23,12 +23,16 @@
  * 距离公式不在这里：滑动距离取自 `SlideAnimation.slideOffset`（全库唯一一处），
  * 与动画实现共用，因此"预置首帧"与"动画起点"不会出现位置跳变。
  *
- * 状态推进（谁改状态、何时改）：
+ * 状态推进（谁改状态、何时改）——三次推进构成完整生命周期：
  * - `setupInitialAnimationState()`（由控制器 viewDidLoad 调用）：置为 .initial
+ * - `SKDialogViewController.presentDialog()` 发起动画前：先校正一次起点，
+ *   再调用 markAnimationStarted() 置为 .animating，冻结动画期间的布局校正
  * - `SKDialogViewController.presentDialog()` 的入场动画完成回调：调用 markAnimationCompleted() 置为 .final
- * 这一次推进是必要的：updateSlideOffsetAfterLayout() 只在 .initial 时改写 transform，
- * 若入场完成后仍停留在 .initial，任何一次布局（宿主改尺寸、屏幕旋转、安全区变化）
- * 都会把滑动类容器重新推回屏幕外的起点，且不会再自己回来。
+ *
+ * 为什么 .animating 这一档是必需的：`updateSlideOffsetAfterLayout()` 会直接改写
+ * 容器的 transform，而在 UIView 动画进行中改写同一属性会**取消该动画**并把容器留在起点。
+ * 若动画期间发生布局（宿主回填尺寸、内容异步撑开、旋转），弹窗就会被永久推到屏幕外。
+ * 另两次推进同理：停在 .initial 会让显示后的布局把容器推回屏幕外，且不会再自己回来。
  */
 
 import UIKit
@@ -120,10 +124,12 @@ class SKDialogAnimationStateManager {
     /// 作用：用真实 bounds 重算滑动距离并重新施加——viewDidLoad 阶段 bounds 可能是 0，
     /// 那时算出的起点是退化值（兜底距离），必须跟着实际尺寸更新。
     ///
-    /// - Important: guard 把改写限定在"入场完成之前的校正窗口期"内。入场完成后控制器会把状态
-    ///   推进为 .final（见 presentDialog），此后布局不再触碰 transform。
-    ///   若在入场动画进行中发生布局，这里仍会按最新尺寸重设起点——这是期望行为，
-    ///   保证滑动起点与容器实际尺寸一致。
+    /// - Important: 校正窗口期由状态机界定，只覆盖"动画尚未发起"这一段。
+    ///   控制器在 `presentDialog()` 里先调用本方法做最后一次校正，紧接着推进为 .animating
+    ///   （见 `markAnimationStarted`），因此动画播放期间的布局不会再触碰 transform——
+    ///   这一点是硬性要求：UIView 动画进行中直接改写 transform 会取消该动画，
+    ///   容器会永久停在起点（屏幕外），弹窗再也看不见。
+    ///   入场完成后状态推进为 .final，同样不再改写。
     func updateSlideOffsetAfterLayout() {
         guard let viewController = viewController else { return }
         guard currentAnimationState == .initial else { return }
@@ -133,10 +139,11 @@ class SKDialogAnimationStateManager {
         applySlideTransform(direction: direction)
     }
 
-    /// 标记动画进行中。
-    /// - Note: 库内当前没有调用者——入场动画期间需要保留"布局后校正起点"的能力，
-    ///   因此控制器只在动画完成时推进状态（markAnimationCompleted）。
-    ///   若将来需要在动画期间冻结容器的 transform，可在 presentDialog 发起动画前调用本方法。
+    /// 标记入场动画开始：状态推进到 .animating，此后 `updateSlideOffsetAfterLayout()` 不再改写容器。
+    /// 调用方：SKDialogViewController.presentDialog()，在完成最后一次起点校正、真正发起动画之前调用。
+    ///
+    /// 为什么必须由控制器显式调用、而不是在动画实现内部切状态：动画是"库内实现 + 宿主自定义"
+    /// 两种来源共用的扩展点，状态推进属于控制器编排的职责，放在实现里会漏掉自定义动画。
     func markAnimationStarted() {
         currentAnimationState = .animating
     }
@@ -156,16 +163,20 @@ extension SKDialogAnimationStateManager {
     ///
     /// 只改 transform，不动 alpha：透明度由预置分支（WithFade）或动画实现自己负责，
     /// 两处职责分开，避免"布局校正"意外把容器改成透明。
+    ///
+    /// 距离公式与动画实现共用（`SlideAnimation.slideOffset`），且都要先把位移归零再量位置
+    /// （见 `measureUnshiftedFrame`）——否则这一次是拿"上一次的起点"去算下一条起点的距离。
     private func applySlideTransform(direction: SlideAnimation.Direction) {
         guard let viewController = viewController else { return }
 
+        let containerView = viewController.containerView
         let offset = SlideAnimation.slideOffset(
             for: direction,
-            containerSize: viewController.containerView.bounds.size,
-            margins: viewController.config.margins
+            containerFrame: SlideAnimation.measureUnshiftedFrame(of: containerView),
+            superviewBounds: viewController.view.bounds
         )
 
-        viewController.containerView.transform = direction.translation(offset: offset)
+        containerView.transform = direction.translation(offset: offset)
     }
 }
 

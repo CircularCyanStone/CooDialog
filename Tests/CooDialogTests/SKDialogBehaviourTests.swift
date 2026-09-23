@@ -159,8 +159,8 @@ struct SKDialogBehaviourTests {
 
     // MARK: - 4. window 模式的关闭回调
 
-    @Test("window 模式下关闭弹窗会触发 completionHandler")
-    func windowModeInvokesCompletionHandlerOnDismiss() async throws {
+    @Test("window 模式未上屏时关闭：不执行收尾，但 dismissDialog 的参数回调仍会触发")
+    func windowModeDismissWithoutPresentationReportsThroughCompletion() async throws {
         let (dialog, _) = makeDialog {
             $0.presentationMode = .window
             $0.position = .center
@@ -170,15 +170,18 @@ struct SKDialogBehaviourTests {
         var closed = false
         dialog.addCompletionHandler { closed = true }
 
-        // 即便当前环境没有可用的 UIWindowScene（window 创建失败），
-        // 入场动画与关闭流程依然会执行，回调语义与真实环境一致
+        // 当前环境无可用 UIWindowScene → window 创建失败 → 弹窗并未真正展示
         dialog.show()
         try await waitForAnimation()
 
-        dialog.dismissDialog()
-        try await waitForAnimation()
+        var dismissCompletionCalled = false
+        dialog.dismissDialog { dismissCompletionCalled = true }
 
-        #expect(closed)
+        // 参数回调是"调用必回调"的载体：宿主不必自己判断当前状态，流程不会悬空
+        #expect(dismissCompletionCalled)
+        // completionHandler 的语义是"关闭完成"——从未显示过就没有关闭可言，因此不触发
+        //（需要"无论是否显示过都收到通知"时用上面那种带参数的形式）
+        #expect(closed == false)
     }
 
     // MARK: - 5. 配置的值语义
@@ -211,7 +214,8 @@ struct SKDialogBehaviourTests {
         #expect(first.config.cornerRadius == 20)
         #expect(second.config.cornerRadius == 40)
 
-        // 收尾：两个弹窗都处于 window 模式，显式关闭以免残留 key window 影响后续用例
+        // 收尾：两个弹窗都是 window 模式（当前环境无可用 scene，实际未上屏）。
+        // 仍然显式关闭，保证用例结束时不留任何"正在展示"的内部状态
         first.dismissDialog()
         second.dismissDialog()
     }
@@ -287,8 +291,8 @@ struct SKDialogBehaviourTests {
 
     // MARK: - 8. 直接使用 SKDialogViewController（不经过 SKDialog）
 
-    @Test("show(completion:) 的显示完成回调必被调用，且入场动画照常发起")
-    func showInvokesCompletionAndPresents() async throws {
+    @Test("show(completion:) 的显示完成回调必被调用；未能上屏时不虚报“显示完成”")
+    func showInvokesCompletionWithoutFakingPresentation() async throws {
         let (dialog, _) = makeDialog {
             $0.presentationMode = .window
             $0.position = .center
@@ -296,6 +300,9 @@ struct SKDialogBehaviourTests {
         }
 
         var shown = false
+        var didFinish = false
+        dialog.presentAnimationDidFinishHandler = { didFinish = true }
+
         let returned = dialog.show { shown = true }
 
         // 返回 self，便于链式书写
@@ -304,14 +311,16 @@ struct SKDialogBehaviourTests {
         #expect(shown)
 
         try await waitForAnimation()
-        // 入场动画照常完成：容器回到 identity
-        #expect(dialog.containerView.transform == .identity)
 
-        dialog.dismissDialog()
+        // 没上屏就不能报告"显示完成"：宿主会据此自动聚焦输入框、启动计时，
+        // 而那些动作全都落在一个看不见的弹窗上（修复前这里会触发 didFinish）
+        #expect(didFinish == false)
+        // 入场动画确实没有发起：容器停在 fadeScale 的预置起点（80%）
+        #expect(abs(dialog.containerView.transform.a - 0.8) < 0.001)
     }
 
-    @Test("继承 SKDialogViewController 后可直接 show()，无需经过 SKDialog")
-    func subclassedDialogCanShowDirectly() async throws {
+    @Test("继承 SKDialogViewController 后可直接使用，无需经过 SKDialog")
+    func subclassedDialogCanBeUsedDirectly() async throws {
         var config = SKDialogConfig()
         config.animationDuration = 0.05
         config.springDamping = 1
@@ -331,11 +340,19 @@ struct SKDialogBehaviourTests {
         // 展示入口只可调用、不可覆写；返回类型仍是子类自身（Self），子类成员可直接链式使用
         let returned: SubclassedDialog = dialog.show()
         #expect(returned === dialog)
+        // 当前环境无可用 UIWindowScene → window 模式未能上屏 → 展示流程如实停在回调这一步
+        #expect(willStartCount == 0)
+
+        // 入场动画统一由 presentDialog() 发起（上屏成功时由 show() 负责调用它）
+        dialog.presentDialog()
+        #expect(willStartCount == 1)
+
+        // 重复发起被 isPresenting 去重：同一个弹窗的入场动画只播一次
+        dialog.presentDialog()
+        #expect(willStartCount == 1)
 
         try await waitForAnimation()
         #expect(dialog.containerView.transform == .identity)
-        // 入场动画只发起一次：show() 内的兜底调用与 viewDidAppear 已用 isPresenting 去重
-        #expect(willStartCount == 1)
 
         dialog.dismissDialog()
     }

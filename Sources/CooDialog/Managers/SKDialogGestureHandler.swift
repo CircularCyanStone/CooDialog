@@ -60,6 +60,12 @@ class SKDialogGestureHandler: NSObject {
     /// 拖拽开始时的容器中心点（回弹时恢复到它）
     private var initialContainerCenter: CGPoint = .zero
 
+    /// 拖拽开始时的遮罩基色与基准 alpha。
+    /// 拖动过程中每帧都要按进度稀释遮罩（`updateBackgroundAlpha`），而基色与基准 alpha
+    /// 在整个手势期间是常量，因此在 `.began` 时取一次即可，不必每帧回读 config 并解析颜色。
+    private var dragMaskBaseColor: UIColor = .black
+    private var dragMaskBaseAlpha: CGFloat = 0.5
+
     // MARK: - Initialization
 
     /// 初始化手势处理器
@@ -75,31 +81,6 @@ class SKDialogGestureHandler: NSObject {
     func setupGestures() {
         setupBackgroundTapGesture()
         setupPanGesture()
-    }
-
-    /// 移除全部手势。
-    /// - Note: 库内当前没有调用者（控制器的生命周期与手势一致，不需要中途拆除）。
-    ///   保留给"复用同一个控制器展示不同配置"的场景：先移除再按新配置重建。
-    func removeGestures() {
-        removeBackgroundTapGesture()
-        removePanGesture()
-    }
-
-    /// 按当前配置刷新手势的启用状态——`setupXxxGesture` 只在安装那一刻读取一次配置，
-    /// 本方法是事后重新同步的唯一途径。
-    /// - Note: 库内当前没有调用者，也未对外暴露：`config` 在库外只读，
-    ///   宿主无法在展示后改配置，因此暂时没有"需要同步"的场景。
-    ///   若将来开放运行时改配置的入口，应同时把本方法转发到公开 API 上。
-    func updateGestureStates() {
-        guard let viewController = viewController else { return }
-
-        // 更新背景点击手势状态
-        backgroundTapGesture?.isEnabled = viewController.config.dismissOnBackgroundTap
-
-        // 更新拖拽手势状态：仅底部/顶部弹窗支持拖拽，且需要配置开关允许
-        let supportsPanGesture = (viewController.config.position == .bottom || viewController.config.position == .top)
-            && viewController.config.enablePanGestureDismiss
-        panGesture?.isEnabled = supportsPanGesture
     }
 }
 
@@ -198,7 +179,7 @@ extension SKDialogGestureHandler {
     /// 两个要点：
     /// - target 是 handler 自身，因此手势存活期间 handler 必须存活
     ///   （由 SKDialogViewController 强引用持有，生命周期一致）
-    /// - 启用状态在安装时读取配置一次；之后改配置不会自动生效（见 updateGestureStates）
+    /// - 启用状态在安装时读取配置一次；之后改配置不会同步到这里（本类不提供重新同步入口）
     private func setupBackgroundTapGesture() {
         guard let viewController = viewController else { return }
 
@@ -258,7 +239,7 @@ extension SKDialogGestureHandler {
         panGestureRecognizer.delegate = self
 
         // 仅底部/顶部弹窗支持拖拽，且需要配置开关允许
-        // （展示后再改 enablePanGestureDismiss，需调用 updateGestureStates() 才会同步）
+        // （安装时读一次：config 在库外只读，展示后没有运行时同步入口）
         let supportsPanGesture = (viewController.config.position == .bottom || viewController.config.position == .top)
             && viewController.config.enablePanGestureDismiss
         panGestureRecognizer.isEnabled = supportsPanGesture
@@ -291,7 +272,7 @@ extension SKDialogGestureHandler {
         }
     }
 
-    /// 拖拽开始：记录基准位置，供后续计算位移与回弹目标。
+    /// 拖拽开始：记录基准位置与遮罩基色，供后续计算位移、回弹目标与淡化进度。
     /// 用"记录起点"而不是每帧累加增量：每帧基于起点重算，避免浮点误差累积，
     /// 也让手势被打断后再次开始时状态是干净的。
     private func handlePanBegan(_ gesture: UIPanGestureRecognizer) {
@@ -299,6 +280,10 @@ extension SKDialogGestureHandler {
 
         // 记录初始位置（回弹时的恢复目标）
         initialContainerCenter = viewController.containerView.center
+
+        // 记录遮罩基色与它的基准 alpha（拖拽全程复用，见属性说明）
+        dragMaskBaseColor = viewController.config.backgroundMaskColor
+        dragMaskBaseAlpha = dragMaskBaseColor.cgColor.alpha
     }
 
     /// 拖拽进行中：按位置限制方向 → 直接移动 center → 用进度驱动遮罩淡化。
@@ -363,6 +348,18 @@ extension SKDialogGestureHandler {
         }
     }
 
+    /// 拖拽相关计算（进度、关闭阈值）用的基准高度：容器当前高度，带下限兜底。
+    private func dragReferenceHeight() -> CGFloat {
+        guard let viewController = viewController else { return Self.minimumDragReferenceHeight }
+        // 布局求解前容器高度是 0，直接用会让"进度"算成 NaN、"关闭阈值"退化成 0
+        //（后者意味着拖 1pt 就关闭）
+        return max(viewController.containerView.bounds.height, Self.minimumDragReferenceHeight)
+    }
+
+    /// 基准高度的下限：与内容的最小高度（`SKDialogContainerSizeManager` 里的 44）保持一致，
+    /// 也接近最小的可用触控尺寸。兜底只会在容器尚未布局时生效，正常拖拽中不会触发。
+    private static let minimumDragReferenceHeight: CGFloat = 44
+
     /// 计算拖拽进度（0.0 ~ 1.0），用于驱动遮罩的淡化程度。
     ///
     /// 满进度的基准取"容器高度的一半"而不是整高：如果以整高为基准，
@@ -370,13 +367,10 @@ extension SKDialogGestureHandler {
     /// - Parameter translation: 拖拽偏移量
     /// - Returns: 拖拽进度（0.0 - 1.0）
     private func calculateDragProgress(translation: CGPoint) -> CGFloat {
-        guard let viewController = viewController else { return 0 }
-
-        let containerHeight = viewController.containerView.bounds.height
         let dragDistance = abs(translation.y)
 
         // 拖拽距离超过容器高度的一半时进度为1
-        let maxDragDistance = containerHeight * 0.5
+        let maxDragDistance = dragReferenceHeight() * 0.5
         let progress = min(dragDistance / maxDragDistance, 1.0)
 
         return progress
@@ -389,17 +383,16 @@ extension SKDialogGestureHandler {
     /// 若拖拽期间也去改它，两者会互相覆盖（例如回弹时被动画覆盖成 0，遮罩直接消失）。
     /// 走颜色通道则与动画互不干扰。
     ///
-    /// 基准是配置色自身的 alpha：因此 `config.backgroundMaskColor` 建议使用半透明颜色，
-    /// 否则淡化幅度会显得很轻微。
+    /// 基准是拖拽开始时记下的遮罩色与它自身的 alpha（`dragMaskBaseColor`）：
+    /// 因此 `config.backgroundMaskColor` 建议使用半透明颜色，否则淡化幅度会显得很轻微。
     /// - Parameter progress: 拖拽进度
     private func updateBackgroundAlpha(progress: CGFloat) {
         guard let viewController = viewController else { return }
 
         // 根据拖拽进度调整背景透明度
-        let originalAlpha = viewController.config.backgroundMaskColor.cgColor.alpha
-        let newAlpha = originalAlpha * (1.0 - progress * 0.5) // 最多减少50%透明度
+        let newAlpha = dragMaskBaseAlpha * (1.0 - progress * 0.5) // 最多减少50%透明度
 
-        viewController.backgroundView.backgroundColor = viewController.config.backgroundMaskColor.withAlphaComponent(newAlpha)
+        viewController.backgroundView.backgroundColor = dragMaskBaseColor.withAlphaComponent(newAlpha)
     }
 
     /// 判断是否应该在拖拽结束时关闭弹窗。
@@ -413,14 +406,12 @@ extension SKDialogGestureHandler {
     ///   - velocity: 拖拽速度
     /// - Returns: 是否应该关闭
     private func shouldDismissOnPanEnd(translation: CGPoint, velocity: CGPoint) -> Bool {
-        guard let viewController = viewController else { return false }
-
-        let containerHeight = viewController.containerView.bounds.height
         let dragDistance = abs(translation.y)
         let dragVelocity = abs(velocity.y)
 
         // 拖拽距离超过容器高度的1/3或者拖拽速度超过阈值
-        let distanceThreshold = containerHeight / 3.0
+        // （基准高度带兜底：容器未布局时不会退化成"拖 1pt 就关闭"）
+        let distanceThreshold = dragReferenceHeight() / 3.0
         let velocityThreshold: CGFloat = 1000.0
 
         return dragDistance > distanceThreshold || dragVelocity > velocityThreshold
@@ -442,7 +433,8 @@ extension SKDialogGestureHandler {
             options: [.curveEaseOut],
             animations: {
                 viewController.containerView.center = self.initialContainerCenter
-                viewController.backgroundView.backgroundColor = viewController.config.backgroundMaskColor
+                // 遮罩回到拖拽开始时的样子（用 .began 记下的基色，保证与淡化过程同源）
+                viewController.backgroundView.backgroundColor = self.dragMaskBaseColor
             },
             completion: nil
         )

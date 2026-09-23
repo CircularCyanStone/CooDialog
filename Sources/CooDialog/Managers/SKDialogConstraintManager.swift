@@ -99,6 +99,9 @@ class SKDialogConstraintManager {
     /// 没有时（内容自适应模式）补建一条并**登记进账本**——补建与登记写在同一处，
     /// 保证不变量（引用非 nil ⟺ 已登记且已激活）始终只有一个维护者。
     ///
+    /// 补建约束的优先级按尺寸模式分档（见 sizeConstraintPriority）：自适应模式是"临时钉住"，
+    /// 内容变大时仍能撑开它；已明确固定的方向则压过内容诉求。
+    ///
     /// 调用方：SKDialogContainerSizeManager（宿主改尺寸时按需驱动）。
     func setContainerWidth(_ width: CGFloat) {
         guard let viewController = viewController else { return }
@@ -108,8 +111,8 @@ class SKDialogConstraintManager {
             return
         }
 
-        // 补建的约束是 required 优先级：它会胜出内容的内在尺寸，把宽度定下来
         let newConstraint = viewController.containerView.widthAnchor.constraint(equalToConstant: width)
+        newConstraint.priority = sizeConstraintPriority(for: viewController.config.sizeMode)
         newConstraint.isActive = true
         containerConstraints.append(newConstraint)
         widthConstraint = newConstraint
@@ -125,6 +128,7 @@ class SKDialogConstraintManager {
         }
 
         let newConstraint = viewController.containerView.heightAnchor.constraint(equalToConstant: height)
+        newConstraint.priority = sizeConstraintPriority(for: viewController.config.sizeMode)
         newConstraint.isActive = true
         containerConstraints.append(newConstraint)
         heightConstraint = newConstraint
@@ -134,6 +138,29 @@ class SKDialogConstraintManager {
 // MARK: - Private
 
 extension SKDialogConstraintManager {
+
+    /// 补建尺寸约束时使用的优先级。
+    ///
+    /// 分档的理由是"同一个 API 在两种模式下的本意不同"：
+    /// - `.contentAdaptive` 下调用 `updateContainerHeight` 等入口，本意是"把尺寸临时钉到某个值"，
+    ///   而不是"改变尺寸模式"。因此补建的约束必须**低于**内容的固有尺寸诉求
+    ///   （content compression resistance 默认 750），内容变大时才能把它撑开——
+    ///   若用 required，容器会被永久定死，而配置层仍写着 `.contentAdaptive`，
+    ///   形成"配置说自适应、约束已钉死"的隐性不一致
+    /// - `.fixed` / `.fixedWidth` / `.fixedHeight` 下，方向已被明确指定固定，就该压过内容诉求
+    ///
+    /// 取 500 而不是 `.defaultHigh`(750)：750 与内容抗压缩同优先级，AutoLayout 打破哪一条
+    /// 并不确定（会打印冲突日志），行为不可预测；500 明确落在
+    /// 「内容抗压缩 750」与「内容压缩（hugging）250」之间，于是行为是确定的：
+    /// 内容更大 → 撑开容器（自适应语义成立）；内容更小 → 保持宿主设定的值（尊重显式调用）。
+    private func sizeConstraintPriority(for sizeMode: SKDialogSizeMode) -> UILayoutPriority {
+        switch sizeMode {
+        case .contentAdaptive:
+            return UILayoutPriority(500)
+        case .fixed, .fixedWidth, .fixedHeight:
+            return .required
+        }
+    }
 
     /// 清除所有约束：停用 + 清空两组账本 + 清空尺寸约束引用。
     /// 三件事必须成对完成——只清账本会让 `widthConstraint` / `heightConstraint` 指向

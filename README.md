@@ -5,6 +5,9 @@ iOS 弹窗组件：一个基于 AutoLayout 的轻量弹窗，提供**底部面�
 
 - 部署目标：iOS 13+
 - 语言：Swift（SPM 下使用 Swift 6 语言模式；CocoaPods 下按 podspec 的 `swift_version` 编译）
+- 工具链：SPM 需要 **Swift 6.2+（Xcode 26+）**——`Package.swift` 声明的 `swift-tools-version: 6.2`
+  是硬门槛，低于它的工具链无法解析这个包；CocoaPods 走 podspec 的 `swift_version = '5.0'`，
+  Xcode 15+ 即可（源码用到 `@MainActor` 与 `MainActor.assumeIsolated`）
 - 依赖：仅 UIKit
 
 ## 安装

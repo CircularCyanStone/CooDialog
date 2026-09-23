@@ -74,18 +74,24 @@ class SKDialogWindowManager {
     /// 4. 设置 rootViewController —— 这一步会触发控制器的 viewDidLoad，
     ///    从而搭建 backgroundView / containerView / 约束 / 手势
     /// 5. makeKeyAndVisible 上屏，并把状态置为可见
-    /// - Parameter completion: 显示完成回调
-    func showInWindow(completion: (() -> Void)? = nil) {
+    ///
+    /// - Parameter completion: 显示完成回调（成功与失败都会调用）
+    /// - Returns: 弹窗是否确实处于"已上屏"状态。`true` 同时覆盖"这次刚上屏"与
+    ///   "此前已经上屏"（幂等路径）；`false` 表示没有可用的 UIWindowScene 或控制器已释放，
+    ///   弹窗此刻并不在屏幕上——调用方必须据此决定是否继续展示流程（例如发起入场动画），
+    ///   否则会给宿主一个"显示完成"的假信号。
+    @discardableResult
+    func showInWindow(completion: (() -> Void)? = nil) -> Bool {
         guard let viewController = viewController else {
             completion?()
-            return
+            return false
         }
 
         // 如果已经在Window中显示，直接返回
         // 幂等：重复调用不会创建第二个 window，也不会重复挂载控制器
         if isWindowVisible {
             completion?()
-            return
+            return true
         }
 
         // 创建自定义Window；失败时直接返回，不置位 isWindowVisible，
@@ -93,7 +99,7 @@ class SKDialogWindowManager {
         // 失败的具体情形：应用没有任何可用的 UIWindowScene（例如场景尚未连接完成）。
         guard createCustomWindow(), let window = customWindow else {
             completion?()
-            return
+            return false
         }
 
         // 保存当前的key window（须在 makeKeyAndVisible 之前保存，否则保存的是自己）
@@ -108,6 +114,7 @@ class SKDialogWindowManager {
 
         // 调用完成回调
         completion?()
+        return true
     }
 
     /// 隐藏自定义Window，并把 key 状态归还给原来的 window。

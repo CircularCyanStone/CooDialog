@@ -11,9 +11,16 @@ import UIKit
 /// 3. `.viewController` 模式下关闭弹窗，两个"关闭完成"回调都必须触发（不能因清理时机而丢）
 /// 4. 入场动画被打断时不报告"显示完成"，正常完成时仍然报告
 /// 5. 面板拖拽要让位给内容里的可滚动列表（列表到顶时才由面板接管）
+/// 6. 入场动画进行中的布局不得把容器改写回屏幕外（否则滑动动画被打断、弹窗永久消失）
+/// 7. 自适应弹窗被动态改尺寸后，内容变大仍能把它撑开（配置与约束两层语义一致）
+/// 8. 滑动距离按容器在父视图中的实际位置算：居中弹窗的起点也要完全在屏幕外；
+///    拖拽后关闭时算出的正是"还差多少"，不会对拖拽位移视而不见
+/// 9. `dismiss(animated:)` 必须收口到库的收尾（否则两种模式的回调与 window 回收都会丢）
 ///
 /// - Note: 与 present 相关的用例需要一个"视图已进入窗口层级"的宿主控制器，
 ///   否则 UIKit 会直接拒绝 present（见第 2 组用例），因此这里用 UIWindow 现搭一个环境。
+/// - Note: window 模式的**成功**路径无法在这里覆盖——测试宿主没有 UIWindowScene，
+///   `showInWindow` 必然走创建失败分支。那条链路需要跑 Examples 下的示例工程验证。
 @MainActor
 struct SKDialogRegressionTests {
 
@@ -295,15 +302,69 @@ struct SKDialogRegressionTests {
         // 布局完成后 viewDidLayoutSubviews 会按真实尺寸校正起点
         dialog.view.layoutIfNeeded()
 
+        // 先记下实际施加的位移，再按同一公式复算（量位置时会先把位移归零）
+        let appliedTx = dialog.containerView.transform.tx
+        let appliedTy = dialog.containerView.transform.ty
         let expected = SlideAnimation.slideOffset(
             for: .bottom,
-            containerSize: dialog.containerView.bounds.size,
-            margins: margins
+            containerFrame: SlideAnimation.measureUnshiftedFrame(of: dialog.containerView),
+            superviewBounds: dialog.view.bounds
         )
 
-        #expect(abs(dialog.containerView.transform.ty - expected) < 0.001)
+        #expect(abs(appliedTy - expected) < 0.001)
         // 纵向滑动不应带水平位移
-        #expect(dialog.containerView.transform.tx == 0)
+        #expect(appliedTx == 0)
+    }
+
+    @Test("居中弹窗配滑动动画时，起点同样完全在屏幕外")
+    func centeredDialogSlidesInFromOffscreen() {
+        // 居中弹窗停在屏幕中央，旧公式（只看容器尺寸）算出的位移会让它留一半在屏幕内，
+        // 看起来像"从屏幕中间飘出来"而不是滑进来
+        let (bottomDialog, _) = makeDialog {
+            $0.position = .center
+            $0.animationType = .slideFromBottom
+        }
+        bottomDialog.view.layoutIfNeeded()
+        #expect(bottomDialog.containerView.frame.minY >= bottomDialog.view.bounds.maxY)
+
+        let (topDialog, _) = makeDialog {
+            $0.position = .center
+            $0.animationType = .slideFromTop
+        }
+        topDialog.view.layoutIfNeeded()
+        #expect(topDialog.containerView.frame.maxY <= topDialog.view.bounds.minY)
+
+        let (rightDialog, _) = makeDialog {
+            $0.position = .center
+            $0.animationType = .slideFromRight
+        }
+        rightDialog.view.layoutIfNeeded()
+        #expect(rightDialog.containerView.frame.minX >= rightDialog.view.bounds.maxX)
+    }
+
+    @Test("拖拽后关闭：退场位移按容器当前位置现算，恰好把面板补送到屏幕外")
+    func dismissAfterDragStillPushesPanelOffscreen() {
+        let (dialog, _) = makeDialog {
+            $0.position = .bottom
+            $0.animationType = .slideFromBottom
+        }
+        dialog.view.layoutIfNeeded()
+
+        // 模拟"用户已经把面板向下拖了一段"（拖拽直接改 center，下一次布局前约束不会覆盖它）
+        let originalCenter = dialog.containerView.center
+        dialog.containerView.center = CGPoint(x: originalCenter.x, y: originalCenter.y + 30)
+
+        // 退场位移按当前位置现算（量位置时会先把预置的起点位移归零；center 是拖拽结果，不归零）
+        let frame = SlideAnimation.measureUnshiftedFrame(of: dialog.containerView)
+        let offset = SlideAnimation.slideOffset(
+            for: .bottom,
+            containerFrame: frame,
+            superviewBounds: dialog.view.bounds
+        )
+
+        // 终点 = 拖拽后的位置 + 位移，恰好落在父视图底边（不多推一个容器高，也不少推）
+        // 旧公式对拖拽位移无感知，会按"容器高度 + 边距"多推，与这里的精确值不符
+        #expect(abs((frame.minY + offset) - dialog.view.bounds.maxY) < 0.001)
     }
 
     @Test("预置位移作用在正确的轴上（左右滑动用 x，上下滑动用 y）")
@@ -317,6 +378,113 @@ struct SKDialogRegressionTests {
         topDialog.view.layoutIfNeeded()
         #expect(topDialog.containerView.transform.ty < 0)       // 从上方进入 → 负位移
         #expect(topDialog.containerView.transform.tx == 0)
+    }
+
+    // MARK: - 8. 入场动画期间发生布局
+
+    @Test("入场动画进行中发生布局，滑动动画不被中断（容器不得停在屏幕外）")
+    func layoutDuringPresentationDoesNotBreakSlideAnimation() async throws {
+        let (dialog, _) = makeDialog {
+            $0.position = .bottom
+            $0.animationType = .slideFromBottom
+            $0.animationDuration = 0.5      // 拉长动画，"动画进行中"这个窗口足够宽
+        }
+        // 先布局一次，让起点基于真实尺寸算出来（等价于真实环境里 window 上屏后的首帧）
+        dialog.view.layoutIfNeeded()
+
+        dialog.presentDialog()
+
+        // 模拟入场动画期间到来的一次布局：宿主回填尺寸、内容异步撑开、旋转都会走到这里
+        dialog.view.setNeedsLayout()
+        dialog.view.layoutIfNeeded()
+
+        // 修复前：布局会把 transform 改写回屏幕外的起点，从而取消正在播放的动画，
+        // 容器永久停在屏幕外（弹窗再也看不见），但"显示完成"回调照常触发
+        #expect(dialog.containerView.transform == .identity)
+
+        try await Task.sleep(nanoseconds: 900_000_000)
+        #expect(dialog.containerView.transform == .identity)
+    }
+
+    @Test("入场动画期间回填尺寸：尺寸变化生效，入场动画照常完成")
+    func sizeBackfillDuringPresentationKeepsAnimation() async throws {
+        let (dialog, _) = makeDialog {
+            $0.position = .bottom
+            $0.animationType = .slideFromBottom
+            $0.animationDuration = 0.5
+        }
+        dialog.view.layoutIfNeeded()
+
+        var didFinish = false
+        dialog.presentAnimationDidFinishHandler = { didFinish = true }
+
+        dialog.presentDialog()
+        dialog.updateContainerHeight(300)   // 异步内容回来了，宿主回填高度（动画进行中）
+
+        try await Task.sleep(nanoseconds: 900_000_000)
+
+        #expect(dialog.containerView.transform == .identity)
+        #expect(abs(dialog.containerView.bounds.height - 300) < 0.001)
+        #expect(didFinish)
+    }
+
+    // MARK: - 9. 自适应模式被动态改尺寸后仍可被内容撑开
+
+    @Test("自适应弹窗被动态改尺寸后，内容变大仍能把它撑开")
+    func adaptiveDialogStillGrowsWithContent() {
+        let (dialog, content) = makeDialog { $0.sizeMode = .contentAdaptive }
+
+        // 内容此时只有低优先级的尺寸诉求，容器约束压得住它 → "临时钉住"生效
+        dialog.updateContainerHeight(150, animated: false)
+        #expect(abs(dialog.containerView.bounds.height - 150) < 0.001)
+        // 钉住的只是约束上的一个临时值，配置层面的模式仍然是自适应
+        #expect(dialog.config.sizeMode == .contentAdaptive)
+
+        // 内容获得了更强的尺寸诉求（例如异步加载完成的图片、固定高度的自定义视图）
+        let tallContent = UIView()
+        tallContent.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(tallContent)
+        NSLayoutConstraint.activate([
+            tallContent.topAnchor.constraint(equalTo: content.topAnchor),
+            tallContent.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            tallContent.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            tallContent.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            tallContent.heightAnchor.constraint(equalToConstant: 400),
+        ])
+
+        dialog.view.setNeedsLayout()
+        dialog.view.layoutIfNeeded()
+
+        // 修复前：补建的高度约束是 required，容器被永久钉在 150，内容只会被压扁
+        #expect(abs(dialog.containerView.bounds.height - 400) < 0.001)
+    }
+
+    // MARK: - 10. 关闭入口收口
+
+    @Test("dismiss(animated:) 收口到库的关闭流程，不会绕过收尾")
+    func systemDismissSignatureIsRoutedToLibraryTeardown() async throws {
+        let host = UIViewController()
+        host.loadViewIfNeeded()
+
+        let (dialog, _) = makeDialog {
+            $0.presentationMode = .viewController(host)
+            $0.animationType = .fadeScale
+        }
+
+        var handlerCalled = false
+        dialog.addCompletionHandler { handlerCalled = true }
+
+        dialog.presentDialog()
+        try await waitForAnimation()
+
+        // 修复前：这个签名会走到 UIKit 的实现，两个"关闭完成"回调都会丢
+        //（window 模式下更是静默什么都不做，弹窗根本不关）
+        var completionCalled = false
+        dialog.dismiss(animated: true) { completionCalled = true }
+        try await waitForAnimation()
+
+        #expect(handlerCalled)
+        #expect(completionCalled)
     }
 }
 

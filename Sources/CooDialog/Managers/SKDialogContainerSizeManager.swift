@@ -116,26 +116,6 @@ class SKDialogContainerSizeManager {
         performLayoutUpdate(animated: animated, completion: completion)
     }
 
-    /// 按当前内容反算高度并应用。
-    ///
-    /// - Note: 库内当前没有调用者（forceRefreshSize() 内部间接调用 adjustSizeToContent）。
-    ///   保留的用途：宿主在内容变化后要求"重新贴合内容"。
-    /// - Parameters:
-    ///   - animated: 是否使用动画
-    ///   - completion: 更新完成回调
-    func adjustHeightToContent(animated: Bool = true, completion: (() -> Void)? = nil) {
-        guard viewController != nil else {
-            completion?()
-            return
-        }
-
-        // 计算内容所需高度
-        let contentHeight = calculateContentHeight()
-
-        // 更新高度
-        updateContainerHeight(contentHeight, animated: animated, completion: completion)
-    }
-
     // MARK: - Public Methods - Width Management
 
     /// 动态更新容器宽度。与高度版本逻辑对称。
@@ -157,24 +137,6 @@ class SKDialogContainerSizeManager {
 
         // 执行布局更新
         performLayoutUpdate(animated: animated, completion: completion)
-    }
-
-    /// 按当前内容反算宽度并应用。
-    /// - Note: 库内当前没有调用者，保留给宿主按需调用。
-    /// - Parameters:
-    ///   - animated: 是否使用动画
-    ///   - completion: 更新完成回调
-    func adjustWidthToContent(animated: Bool = true, completion: (() -> Void)? = nil) {
-        guard viewController != nil else {
-            completion?()
-            return
-        }
-
-        // 计算内容所需宽度
-        let contentWidth = calculateContentWidth()
-
-        // 更新宽度
-        updateContainerWidth(contentWidth, animated: animated, completion: completion)
     }
 
     // MARK: - Public Methods - Size Management
@@ -232,8 +194,10 @@ extension SKDialogContainerSizeManager {
     /// - `.fixed`：保留原宽度，仅更新高度（宽度是调用方明确指定的，不能丢）
     /// - `.fixedHeight`：更新固定高度（保持"只固定高度"的原始意图）
     /// - `.fixedWidth`：升格为 `.fixed`（因为现在高度也被定死了，不再是"高度随内容"）
-    /// - `.contentAdaptive`：**不改**——自适应弹窗被动态改高度后，仍应允许后续内容继续撑开它；
-    ///   若在这里改成 `.fixed`，弹窗就被永久钉死，后续内容变化不再生效
+    /// - `.contentAdaptive`：**不改**——自适应弹窗被动态改高度后，模式本身仍是自适应。
+    ///   这一条要与约束侧配套看：补建的高度约束用的是"低于内容固有尺寸诉求"的优先级
+    ///   （见 SKDialogConstraintManager.sizeConstraintPriority），因此"内容变大仍能撑开容器"
+    ///   这句话在配置与约束两层同时成立。若在这里改成 `.fixed`，模式就与"可被内容撑开"矛盾了
     ///   （这也正是"不允许 `.fixed` 传 nil"的原因：那种写法会在这一步被误判成固定尺寸意图）
     private func updateConfigForHeightChange(_ height: CGFloat) {
         guard let viewController = viewController else { return }
@@ -274,7 +238,8 @@ extension SKDialogContainerSizeManager {
     /// 同时给出宽高时，配置收敛为 `.fixed`（两个方向都已有确定值）。
     ///
     /// `.contentAdaptive` 例外——与高度/宽度两条路径用同一条规则：自适应弹窗被钉住尺寸后，
-    /// 模式本身仍是自适应，后续内容变化依然能撑开它。若在这里改成 `.fixed`，
+    /// 模式本身仍是自适应，内容变大时依然能撑开它（约束侧的低优先级补建与之配套，
+    /// 见 SKDialogConstraintManager.sizeConstraintPriority）。若在这里改成 `.fixed`，
     /// 一次"按内容重算尺寸"（adjustSizeToContent / forceRefreshSize）就会把它永久钉死，
     /// 与另外两条路径的行为也不一致。
     private func updateConfigForSizeChange(_ size: CGSize) {
@@ -297,65 +262,6 @@ extension SKDialogContainerSizeManager {
             return scene.coordinateSpace.bounds
         }
         return UIScreen.main.bounds
-    }
-
-    /// 反算内容所需高度。
-    ///
-    /// 算法：让 AutoLayout 在"宽度已确定、高度取最小可行值"的前提下求解一次，
-    /// 得到的就是内容当前的理想高度——这与遍历子视图累加 frame 的做法有本质区别：
-    /// AutoLayout 下 frame 可能尚未确定、也不反映约束意图，只有 systemLayoutSizeFitting
-    /// 的结果才与当前约束体系一致。
-    ///
-    /// - Returns: 内容高度（最小 44pt，保证单行文本/触控目标不会被压扁）
-    private func calculateContentHeight() -> CGFloat {
-        guard let viewController = viewController else { return 0 }
-
-        // 获取容器视图的当前宽度
-        let containerWidth = viewController.containerView.bounds.width
-
-        // 如果容器宽度为0，使用可用区域宽度减去边距
-        // （容器还没布局时的兜底，避免用 0 宽度去反算高度导致结果失真）
-        let availableWidth = containerWidth > 0 ? containerWidth :
-            availableScreenBounds.width - viewController.config.margins.left - viewController.config.margins.right
-
-        // 计算内容视图所需的高度
-        // 水平方向 required：宽度是外部给定的前提，必须遵守；
-        // 垂直方向 fittingSizeLevel：高度取最小可行的紧凑值，而不是拉伸填满
-        let targetSize = CGSize(width: availableWidth, height: UIView.layoutFittingCompressedSize.height)
-        let contentHeight = viewController.containerView.systemLayoutSizeFitting(
-            targetSize,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        ).height
-
-        return max(contentHeight, 44) // 最小高度44
-    }
-
-    /// 反算内容所需宽度（与高度版镜像：宽度取最小可行值，高度固定）。
-    ///
-    /// 结果会被夹在 [100, 屏幕宽度 - 左右边距] 之间，避免单行超长文本把弹窗拉成满屏宽。
-    /// - Returns: 内容宽度
-    private func calculateContentWidth() -> CGFloat {
-        guard let viewController = viewController else { return 0 }
-
-        // 获取容器视图的当前高度
-        let containerHeight = viewController.containerView.bounds.height
-
-        // 如果容器高度为0，使用一个合理的默认值
-        let availableHeight = containerHeight > 0 ? containerHeight : 200
-
-        // 计算内容视图所需的宽度
-        let targetSize = CGSize(width: UIView.layoutFittingCompressedSize.width, height: availableHeight)
-        let contentWidth = viewController.containerView.systemLayoutSizeFitting(
-            targetSize,
-            withHorizontalFittingPriority: .fittingSizeLevel,
-            verticalFittingPriority: .required
-        ).width
-
-        // 限制最大宽度为可用区域宽度减去边距
-        let maxWidth = availableScreenBounds.width - viewController.config.margins.left - viewController.config.margins.right
-
-        return min(max(contentWidth, 100), maxWidth) // 最小宽度100，最大宽度为屏幕宽度减去边距
     }
 
     /// 反算内容所需尺寸（两个方向都取最小可行值，即"压缩尺寸"）。

@@ -139,7 +139,7 @@ public struct SKDialogConfig {
 
     /// 是否允许拖拽关闭（仅对底部 / 顶部弹窗有意义，居中弹窗没有可拖出的方向）。
     ///
-    /// 消费位置：SKDialogGestureHandler.setupPanGesture() / updateGestureStates()，
+    /// 消费位置：SKDialogGestureHandler.setupPanGesture()，
     /// 判定条件为「position 是 .bottom 或 .top」**且**本开关为 true。
     /// - Important: 配置在**展示前**确定——手势只在安装那一刻读一次本值，
     ///   而 `config` 对库外只读，展示后没有运行时同步入口。
