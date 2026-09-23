@@ -31,6 +31,8 @@
  * 引用关系（这条环必须在关闭时显式打破）：
  * 控制器 →(强) windowManager →(强) customWindow →(强) rootViewController(宿主)
  *        →(强) presentedViewController(控制器)
+ * 本类刻意**不**反向持有控制器：它需要的唯一配置（窗口层级）由调用方按参数传入，
+ * 因此这里没有弱引用、也不需要自定义 init——环只经由 window 这一条路成立。
  * 打断顺序固定为：控制器先 dismiss 自己（摘掉 present 关系）→ 本类再清 rootViewController、
  * 释放 customWindow。因此**必须保证关闭流程会走到 removeCustomWindow()**：
  * 控制器的 dismissDialog() 在 window 模式下会调用它；若绕过关闭流程直接丢弃控制器，
@@ -46,9 +48,6 @@ class SKDialogWindowManager {
 
     // MARK: - Properties
 
-    /// 弱引用主控制器，避免循环引用
-    private weak var viewController: SKDialogViewController?
-
     /// 自定义Window实例（强引用：由本类负责它的存活与释放）
     private var customWindow: UIWindow?
 
@@ -62,14 +61,6 @@ class SKDialogWindowManager {
     /// 用 weak：它只是"记住是谁，稍后还给它"，不需要也不应该延长原 window 的生命周期。
     private weak var originalKeyWindow: UIWindow?
 
-    // MARK: - Initialization
-
-    /// 初始化Window管理器
-    /// - Parameter viewController: 关联的弹窗控制器
-    init(viewController: SKDialogViewController) {
-        self.viewController = viewController
-    }
-
     // MARK: - Public Methods
 
     /// 准备一个承载弹窗的自建 window，并返回其中的宿主控制器。
@@ -81,14 +72,16 @@ class SKDialogWindowManager {
     /// 4. 设置 rootViewController —— 这一步会触发宿主的 viewDidLoad
     /// 5. makeKeyAndVisible 上屏，并把宿主记为"已就位"
     ///
+    /// - Parameter windowLevel: 自建 window 的层级（由调用方按配置传入；
+    ///   本类不读取配置，也不认识弹窗控制器，只负责把 window 摆到指定层级）
     /// - Returns: 承载弹窗的宿主控制器；`nil` 表示当前没有可用的 UIWindowScene。
-    func makeHostForPresentation() -> UIViewController? {
+    func makeHostForPresentation(windowLevel: UIWindow.Level) -> UIViewController? {
         // 幂等：window 已在，直接复用它的宿主
         if let host = hostViewController {
             return host
         }
 
-        guard createCustomWindow(), let window = customWindow else {
+        guard createCustomWindow(windowLevel: windowLevel), let window = customWindow else {
             return nil
         }
 
@@ -143,9 +136,10 @@ class SKDialogWindowManager {
 extension SKDialogWindowManager {
 
     /// 创建自定义Window
+    /// - Parameter windowLevel: 自建 window 的层级
     /// - Returns: 是否创建成功；无可用 window scene 时返回 false。
     @discardableResult
-    private func createCustomWindow() -> Bool {
+    private func createCustomWindow(windowLevel: UIWindow.Level) -> Bool {
         guard let windowScene = activeWindowScene else { return false }
 
         // 用 windowScene 初始化而不是 UIWindow(frame:)：iOS 13 起是多场景模型，
@@ -153,18 +147,18 @@ extension SKDialogWindowManager {
         customWindow = UIWindow(windowScene: windowScene)
 
         // 配置Window属性
-        configureWindow()
+        configureWindow(windowLevel: windowLevel)
         return true
     }
 
     /// 配置Window属性
-    private func configureWindow() {
+    private func configureWindow(windowLevel: UIWindow.Level) {
         guard let window = customWindow else { return }
 
         // 设置Window层级，确保弹窗在所有内容之上
-        // 取值来自 config.windowLevel，默认 `.alert + 1`：既高于普通 window，也高于系统 alert 层。
-        // 取不到控制器时（理论上不会发生）退回同一个默认值，避免层级意外下降。
-        window.windowLevel = viewController?.config.windowLevel ?? (UIWindow.Level.alert + 1)
+        // 取值由调用方按 config.windowLevel 传入，构造时已给默认值 `.alert + 1`：
+        // 既高于普通 window，也高于系统 alert 层
+        window.windowLevel = windowLevel
 
         // 设置背景色为透明
         // window 自身不画任何东西，视觉全部来自弹窗的 view（半透明遮罩 + 容器）；

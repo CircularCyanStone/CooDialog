@@ -75,8 +75,10 @@ open class SKDialogViewController: UIViewController {
     /// 动画状态管理器：预置动画起点、布局后校正滑动偏移
     private lazy var animationStateManager: SKDialogAnimationStateManager = SKDialogAnimationStateManager(viewController: self)
 
-    /// Window模式管理器：自建 window 的显示与释放
-    private lazy var windowManager: SKDialogWindowManager = SKDialogWindowManager(viewController: self)
+    /// Window模式管理器：自建 window 的创建、配置、上屏与回收。
+    /// 唯一不需要引用 self 的管理器——它需要的窗口层级由调用方按参数传入
+    /// （见 presentationHost()），因此不必 lazy，也不参与上面那条"构造时序"的约定。
+    private let windowManager = SKDialogWindowManager()
 
     /// 容器尺寸管理器：运行时动态改尺寸（计算内容尺寸 + 动画过渡 + 回写配置）。
     /// 约束的落地（改 constant / 补建 / 登记）全部交给它依赖的约束管理器，
@@ -510,7 +512,7 @@ extension SKDialogViewController {
         let host: UIViewController
         switch config.presentationMode {
         case .window:
-            guard let windowHost = windowManager.makeHostForPresentation() else { return nil }
+            guard let windowHost = windowManager.makeHostForPresentation(windowLevel: config.windowLevel) else { return nil }
             host = windowHost
         case .viewController(let given):
             host = given
