@@ -35,7 +35,7 @@
  * 因此这里没有弱引用、也不需要自定义 init——环只经由 window 这一条路成立。
  * 打断顺序固定为：控制器先 dismiss 自己（摘掉 present 关系）→ 本类再清 rootViewController、
  * 释放 customWindow。因此**必须保证关闭流程会走到 removeCustomWindow()**：
- * 控制器的 dismissDialog() 在 window 模式下会调用它；若绕过关闭流程直接丢弃控制器，
+ * 控制器的 dismiss() 在 window 模式下会调用它；若绕过关闭流程直接丢弃控制器，
  * 环不会被打破，window 与控制器都将泄漏。
  */
 

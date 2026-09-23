@@ -287,7 +287,7 @@ public class SKDialog {
 
     /// 设置动画消失完成回调（退场动画结束时触发，此时视图尚未从层级中移除）。
     /// 若需要在窗口/控制器彻底收尾后执行逻辑，用 `show()` 返回值的
-    /// `addCompletionHandler(_:)`，或 `dismissDialog(completion:)`。
+    /// `addCompletionHandler(_:)`，或 `dismiss(completion:)`。
     @discardableResult
     public func onDismissAnimationDidFinish(_ handler: @escaping () -> Void) -> SKDialog {
         self.dismissAnimationDidFinishHandler = handler

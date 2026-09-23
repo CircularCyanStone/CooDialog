@@ -60,7 +60,7 @@ extension UIView {
         var responder: UIResponder? = self
         while responder != nil {
             if let dialogVC = responder as? SKDialogViewController {
-                dialogVC.dismissDialog()
+                dialogVC.dismiss()
                 return
             }
             responder = responder?.next

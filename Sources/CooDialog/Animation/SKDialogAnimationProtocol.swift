@@ -25,7 +25,7 @@ import UIKit
 ///
 /// - Important: 实现方的两条硬性约定：
 ///   1. 必须以某种方式**恰好调用一次** `completion`。控制器的 `presentAnimationDidFinishHandler`
-///      与内部显示状态都挂在它上面，漏调会导致回调不触发、`dismissDialog` 的语义错乱。
+///      与内部显示状态都挂在它上面，漏调会导致回调不触发、`dismiss` 的语义错乱。
 ///   2. 起点状态既可以在实现内部设置（内置动画就是这么做的，因此动画是自包含的），
 ///      也可以依赖 SKDialogAnimationStateManager 预置的状态。内置动画选择"自己设起点"，
 ///      这样即便配置在展示前被改过，动画也总能从正确位置开始。

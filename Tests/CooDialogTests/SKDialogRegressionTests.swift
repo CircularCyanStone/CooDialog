@@ -143,7 +143,7 @@ struct SKDialogRegressionTests {
 
     // MARK: - 3. 控制器模式的关闭回调
 
-    @Test("viewController 模式：关闭弹窗时 addCompletionHandler 与 dismissDialog 的完成回调都会触发")
+    @Test("viewController 模式：关闭弹窗时 addCompletionHandler 与 dismiss 的完成回调都会触发")
     func viewControllerModeTriggersBothDismissCallbacks() async throws {
         let host = UIViewController()
         host.loadViewIfNeeded()
@@ -163,7 +163,7 @@ struct SKDialogRegressionTests {
         try await waitForAnimation()
 
         var dismissCompletionCalled = false
-        dialog.dismissDialog { dismissCompletionCalled = true }
+        dialog.dismiss { dismissCompletionCalled = true }
         try await waitForAnimation()
 
         #expect(handlerCallCount == 1)
@@ -186,7 +186,7 @@ struct SKDialogRegressionTests {
         dialog.presentAnimationDidFinishHandler = { didFinish = true }
 
         dialog.presentDialog()                  // 发起入场：动画被挂起，尚未结束
-        dialog.dismissDialog()                  // 展示途中关闭：isPresenting 置为 false，退场立即收尾
+        dialog.dismiss()                  // 展示途中关闭：isPresenting 置为 false，退场立即收尾
         animation.finishPresentAnimation()      // 入场动画"这才结束"
 
         // 修复前：入场的完成回调照样触发 did finish，

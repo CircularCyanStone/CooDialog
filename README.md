@@ -84,8 +84,8 @@ dialog.updateContainerHeight(320)
 ## 关闭弹窗
 
 ```swift
-dialog.dismissDialog()                       // 播放退场动画后收尾
-dialog.dismissDialog { print("已关闭") }      // 带关闭完成回调
+dialog.dismiss()                              // 播放退场动画后收尾
+dialog.dismiss { print("已关闭") }             // 带关闭完成回调
 dialog.addCompletionHandler { /* 追加回调，先注册的先执行 */ }
 ```
 

@@ -31,7 +31,7 @@
 // → show()（确定宿主 → present，只负责上屏）
 // → viewDidAppear（触发 presentDialog，播入场动画）
 // → viewDidLayoutSubviews（动画开始前校正滑动起点）
-// → dismissDialog（退场动画 → 摘掉 present 关系 → 回收自建 window → 触发关闭回调）
+// → dismiss()（退场动画 → 摘掉 present 关系 → 回收自建 window → 触发关闭回调）
 
 import UIKit
 
@@ -39,11 +39,11 @@ import UIKit
 ///
 /// 对外以 `open` 暴露：宿主可以继承它覆写生命周期方法，并用公开的 `containerView` / `config` /
 /// 各动画回调做定制。
-/// 扩展面刻意止步于此——核心流程（`show` / `dismissDialog` / `addContentView`）只可调用、不可覆写：
+/// 扩展面刻意止步于此——核心流程（`show` / `dismiss` / `addContentView`）只可调用、不可覆写：
 /// 展示方式由 `config.presentationMode` 表达，覆写它们会绕过 `isPresenting` 去重、window 回收等内部时序，
 /// 而这些时序正是本类对外契约（回调必触发、window 必释放）的保障。
-/// 唯一的例外是 UIKit 签名的 `dismiss(animated:completion:)`：它被覆写成"收口到 `dismissDialog()`"
-/// （不覆写的话，那个签名会绕过全部收尾，详见方法说明），子类无需也不应再动它。
+/// 唯一的例外是 `dismiss(animated:completion:)`：它既是本类的关闭入口、又是 UIKit 的公开方法，
+/// 必须覆写才能保证两种调用写法行为一致（详见方法说明），子类无需也不应再动它。
 /// 全部 API 均在主 actor 上，需在主线程调用。
 @MainActor
 open class SKDialogViewController: UIViewController {
@@ -99,7 +99,7 @@ open class SKDialogViewController: UIViewController {
 
     /// 是否正在显示（含入场动画中）。
     /// 用途：viewDidAppear 与 show() 都可能发起入场，用它保证入口只被真正执行一次；
-    /// 同时作为 dismissDialog 的前置条件。
+    /// 同时作为 dismiss 的前置条件。
     private var isPresenting = false
 
     /// 弹窗关闭完成回调（两种显示模式语义一致：退场动画结束、收尾动作已执行之后）。
@@ -107,7 +107,7 @@ open class SKDialogViewController: UIViewController {
     /// 弹窗即将从宿主上摘除（系统的 dismiss 要到下一次 runloop 才完全落定，
     /// 因此回调内读 `presentingViewController` / `view.window` 可能还是旧值——本库的契约
     /// 只承诺"视觉上已消失、window 与 key 状态已收尾"，不承诺那两个属性已刷新）。
-    /// 用 `addCompletionHandler(_:)` 可追加多个回调；`dismissDialog(completion:)` 传的是一次性回调。
+    /// 用 `addCompletionHandler(_:)` 可追加多个回调；`dismiss(completion:)` 传的是一次性回调。
     public var completionHandler: (() -> Void)?
 
     /// 弹窗显示动画开始回调
@@ -204,7 +204,7 @@ open class SKDialogViewController: UIViewController {
     ///
     /// - Parameter completion: **显示完成**回调（present 转场结束后触发，window 模式同样如此）。
     ///   它不是关闭回调——需要"关闭后执行"的逻辑请用 `addCompletionHandler(_:)` 或
-    ///   `dismissDialog(completion:)`；**无法展示时同样会被调用**，保证"调用必回调"，
+    ///   `dismiss(completion:)`；**无法展示时同样会被调用**，保证"调用必回调"，
     ///   覆盖 window 创建失败（无可用 scene）、宿主已 present 其它控制器、
     ///   以及宿主的视图尚未进入 window 层级三种情形。
     /// - Returns: self，便于链式书写（子类可拿到自己的类型）。
@@ -227,42 +227,52 @@ open class SKDialogViewController: UIViewController {
         return self
     }
 
-    /// 消失弹窗（播放退场动画后收尾）。
+    /// 关闭弹窗（唯一的关闭入口）：播放退场动画，然后按固定顺序收尾。
     ///
-    /// - Parameter completion: 关闭完成的回调闭包，默认为nil
+    /// 覆写 UIKit 的同名方法，是因为"把控制器从呈现链上摘掉"和"关闭弹窗"不是一回事：
+    /// UIKit 的实现只做前者，而弹窗还需要播退场动画、回收自建 window、复位展示状态、
+    /// 触发关闭回调。不覆写的话，`dialog.dismiss(animated: true)` 会静默绕过这一切——
+    /// `.window` 模式下 window 不会回收（window 与控制器互相强引用，一起泄漏），
+    /// `.viewController` 模式下所有"关闭完成"回调都会丢。
     ///
-    /// 收尾时机：**退场动画结束的那一刻**（此时弹窗在视觉上已经消失），
-    /// 之后按固定顺序做三件事，两种模式共用同一条路径：
-    /// 1. 把弹窗从宿主上摘下来（`dismiss(animated: false)`，系统转场关闭，
-    ///    视觉上只保留库自绘的退场动画）
+    /// 收尾顺序固定为三步，两种展示模式共用同一条路径：
+    /// 1. 把弹窗从宿主上摘下来（系统转场关闭，视觉上只剩库自绘的退场动画）
     /// 2. `.window` 模式额外回收自建 window（连同 key window 的归还；其它模式为空操作）
     /// 3. 触发"关闭完成"回调
-    /// 顺序不能颠倒：先摘掉 present 关系、再拆 window，环才是从里到外解开的；
+    /// 顺序不能颠倒：先摘掉 present 关系、再拆 window，引用环才是从里到外解开的；
     /// 回调放在最后，宿主读到的 window / key 状态已经是收尾后的
-    /// （但系统 dismiss 的移除要到下一次 runloop 才落定，所以那一步的"关系解除"
-    ///  可能比回调晚一瞬——这是刻意不依赖系统时序的代价，也是它的意义所在）。
-    /// - `case .none`：`self` 已被释放时（回调闭包捕获的是 weak self）走这里，
-    ///   仅调用传入的 completion，保证调用方的等待流程不会悬空
+    /// （系统的移除要到下一次 runloop 才完全落定，因此回调里读 `presentingViewController`
+    ///  可能还是旧值——本库承诺的是"视觉上已消失、window 与 key 已收尾"）。
     ///
-    /// 为什么回调不挂在系统 `dismiss` 的 completion 上：
-    /// 那个 completion 何时回调由 UIKit 决定（转场排队时会延后，环境异常时甚至不会回调）。
-    /// 一旦"清理"与"触发"不在同一个同步块里，就会出现"先清空、后触发"——回调永久丢失，
-    /// 且同一个 API 在两种模式下表现不一致。现在的写法不依赖任何系统时序。
+    /// 回调不挂在系统 `dismiss` 的 completion 上：那个 completion 何时回调由 UIKit 决定
+    /// （转场排队时会延后，环境异常时甚至不会回调），一旦"清理"与"触发"不在同一个同步块里，
+    /// 就会出现"先清空、后触发"——回调永久丢失。现在的写法不依赖任何系统时序。
     ///
-    /// 未处于显示状态时直接回调：保证"调用 dismiss 一定会收到完成通知"，
-    /// 宿主因此不必自己判断当前状态。
-    /// - Note: 刻意非 `open`：本类全部关闭路径（背景点击 / 拖拽 / `UIView.closeSKDialog()` /
-    ///   `dismiss()`）都收敛到这一份收尾实现，覆写会让这些路径一起被替换；漏调 super 还会残留
-    ///   `isPresenting` 状态、导致 window 无法释放。需要"关闭前拦截"请在调用方判断后再决定是否调用。
-    public func dismissDialog(completion: (() -> Void)? = nil) {
+    /// - Parameters:
+    ///   - flag: 是否播放库自绘的退场动画（系统转场始终关闭，见 `SKDialogAnimationUtils`）。
+    ///     传 `false` 表示立即收尾——视图随即被移除，没有可动的东西，
+    ///     适合页面销毁、退到后台这类不需要过渡的场景。两个动画回调不受影响：
+    ///     它们标记的是"关闭流程"的两个阶段，两种情况都会触发。
+    ///   - completion: 关闭完成回调（一次性；要追加多个用 `addCompletionHandler(_:)`）。
+    ///     未处于展示状态时也会回调，保证"调用 dismiss 一定会收到完成通知"，
+    ///     宿主不必自己判断当前状态。
+    /// - Note: 本类全部关闭路径（背景点击 / 拖拽关闭 / `UIView.closeSKDialog()` / 宿主直接调用）
+    ///   都收敛到这里，因此覆写它会一次性替换掉所有路径的行为，子类无需也不应再动它。
+    open override func dismiss(animated flag: Bool = true, completion: (() -> Void)? = nil) {
         guard isPresenting else {
             completion?()
             return
         }
         isPresenting = false
 
-        // 通知动画即将开始
+        // 通知关闭流程开始（无论是否播放动画，宿主的清理逻辑都不该被跳过）
         dismissAnimationWillStartHandler?()
+
+        guard flag else {
+            // 不播退场动画：直接收尾
+            completeDismissal(completion: completion)
+            return
+        }
 
         animationManager.performDismissAnimation(
             backgroundView: backgroundView,
@@ -274,40 +284,8 @@ open class SKDialogViewController: UIViewController {
                 completion?()
                 return
             }
-
-            // 通知动画已完成
-            self.dismissAnimationDidFinishHandler?()
-
-            // 收尾：先摘掉 present 关系，再回收自建 window，最后才通知宿主
-            self.dismissFromHost()
-            self.removeCustomWindowIfNeeded()
-            self.finishDismiss(completion: completion)
+            self.completeDismissal(completion: completion)
         }
-    }
-
-    /// 简化的消失方法，兼容旧版本API。
-    /// - Note: 刻意非 `open`：它只是 `dismissDialog()` 的转发壳，覆写它会让
-    ///   "背景点击 / 拖拽关闭"与"主动关闭"两条路径行为分叉。
-    public func dismiss() {
-        dismissDialog()
-    }
-
-    /// 关闭弹窗（UIKit 签名），收口到 `dismissDialog()`。
-    ///
-    /// 为什么必须覆写：本类的关闭入口有两个"名字"——`dismiss()`（旧 API）与本方法（UIKit 签名）。
-    /// 不覆写时，`dialog.dismiss(animated: true)` 会走到 UIKit 的实现，而那是个静默陷阱：
-    /// - window 模式：控制器是自建 window 的 rootViewController、并没有被谁 present，
-    ///   UIKit 的实现找不到可以 dismiss 的对象，**什么都不做**（弹窗不关，也不报错）
-    /// - `.viewController` 模式：控制器确实会被移除，但完全绕过本类的收尾——
-    ///   完成回调丢失、`isPresenting` 残留、window 引用环（window → 控制器 → windowManager → window）
-    ///   不会被打断
-    /// 覆写后两种写法都收敛到同一条收尾路径，与背景点击 / 拖拽关闭的行为一致。
-    ///
-    /// - Note: `animated` 仅用于与 UIKit 签名对齐——退场动画由本库自绘，系统转场一律关闭
-    ///   （与 `show()` 里 present 时使用 `animated: false` 对称）。
-    ///   需要"关闭后执行"的逻辑请用 `completion`，或 `addCompletionHandler(_:)` 追加。
-    open override func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
-        dismissDialog(completion: completion)
     }
 
     /// 添加内容视图到容器（四边贴合）。
@@ -398,7 +376,7 @@ extension SKDialogViewController {
     /// 若入场被打断（弹窗在入场途中被关闭），则只推进内部状态、不触发 "did finish"
     /// （此时弹窗已进入关闭流程，再报告"显示完成"会误导宿主）。
     /// 提前置 isPresenting = true 的角色有两层：既是"重复调用直接返回"的闸门，
-    /// 也是"弹窗是否处于展示中"的状态（dismissDialog 的前置条件、是否报告 did finish 都看它）。
+    /// 也是"弹窗是否处于展示中"的状态（dismiss 的前置条件、是否报告 did finish 都看它）。
     func presentDialog() {
         guard !isPresenting else { return }
         isPresenting = true
@@ -425,7 +403,7 @@ extension SKDialogViewController {
             // 详见 SKDialogAnimationStateManager 的说明
             self?.animationStateManager.markAnimationCompleted()
             // 通知动画已完成——但只在弹窗仍处于展示中时通知：
-            // 入场动画被打断时（用户在 0.3 秒内点了遮罩、或代码紧接着调用了 dismissDialog）
+            // 入场动画被打断时（用户在 0.3 秒内点了遮罩、或代码紧接着调用了 dismiss）
             // 这个回调同样会到达，而此刻弹窗已经进入关闭流程。注意上一行的状态推进
             // 不能跟着一起跳过：markAnimationCompleted 是布局校正的开关。
             if self?.isPresenting == true {
@@ -531,7 +509,7 @@ extension SKDialogViewController {
 
     /// 把弹窗从宿主上摘下来（两种模式的收尾终点）。
     ///
-    /// 为什么单独成一个方法：`dismiss(animated:completion:)` 已被本类覆写为"收口到 dismissDialog"，
+    /// 为什么单独成一个方法：`dismiss(animated:completion:)` 已被本类覆写为完整的关闭流程，
     /// 而这里的调用点在动画的逃逸闭包里——闭包内不能写 `super`，若写成 `self.dismiss(...)`
     /// 会再次进入覆写实现、无限递归。以实例方法的身份转发到 `super` 才能绕开覆写。
     ///
@@ -539,6 +517,18 @@ extension SKDialogViewController {
     ///   环（window → 宿主 → 弹窗 → windowManager → window）才是从里到外解开的。
     private func dismissFromHost() {
         super.dismiss(animated: false)
+    }
+
+    /// 退场收尾：按固定顺序清理，最后触发"关闭完成"回调。
+    /// 播完动画与不播动画（`animated: false`）两条路径共用这里，保证行为一致。
+    private func completeDismissal(completion: (() -> Void)?) {
+        // 通知关闭流程结束
+        dismissAnimationDidFinishHandler?()
+
+        // 先摘掉 present 关系，再回收自建 window，最后才通知宿主
+        dismissFromHost()
+        removeCustomWindowIfNeeded()
+        finishDismiss(completion: completion)
     }
 
     /// 关闭收尾：触发"关闭完成"相关的两个回调，然后清空一次性回调。

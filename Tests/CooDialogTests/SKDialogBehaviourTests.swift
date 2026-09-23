@@ -150,7 +150,7 @@ struct SKDialogBehaviourTests {
         try await waitForAnimation()
         #expect(dialog.containerView.transform == .identity)
 
-        dialog.dismissDialog()
+        dialog.dismiss()
         try await waitForAnimation()
 
         // 修复前这里是硬编码的 0.8
@@ -159,7 +159,7 @@ struct SKDialogBehaviourTests {
 
     // MARK: - 4. window 模式的关闭回调
 
-    @Test("window 模式未上屏时关闭：不执行收尾，但 dismissDialog 的参数回调仍会触发")
+    @Test("window 模式未上屏时关闭：不执行收尾，但 dismiss 的参数回调仍会触发")
     func windowModeDismissWithoutPresentationReportsThroughCompletion() async throws {
         let (dialog, _) = makeDialog {
             $0.presentationMode = .window
@@ -175,7 +175,7 @@ struct SKDialogBehaviourTests {
         try await waitForAnimation()
 
         var dismissCompletionCalled = false
-        dialog.dismissDialog { dismissCompletionCalled = true }
+        dialog.dismiss { dismissCompletionCalled = true }
 
         // 参数回调是"调用必回调"的载体：宿主不必自己判断当前状态，流程不会悬空
         #expect(dismissCompletionCalled)
@@ -216,8 +216,8 @@ struct SKDialogBehaviourTests {
 
         // 收尾：两个弹窗都是 window 模式（当前环境无可用 scene，实际未上屏）。
         // 仍然显式关闭，保证用例结束时不留任何"正在展示"的内部状态
-        first.dismissDialog()
-        second.dismissDialog()
+        first.dismiss()
+        second.dismiss()
     }
 
     @Test("动态改尺寸后 sizeMode 的回写对读取 config 的一方可见")
@@ -252,7 +252,7 @@ struct SKDialogBehaviourTests {
         for item in cases {
             let dialog = item.build(SKDialog.center()).show()
             #expect(dialog.config.sizeMode == item.expected, "\(item.name) 应映射为 \(item.expected)")
-            dialog.dismissDialog()
+            dialog.dismiss()
         }
     }
 
@@ -354,7 +354,7 @@ struct SKDialogBehaviourTests {
         try await waitForAnimation()
         #expect(dialog.containerView.transform == .identity)
 
-        dialog.dismissDialog()
+        dialog.dismiss()
     }
 }
 
