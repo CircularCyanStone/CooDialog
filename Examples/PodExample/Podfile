@@ -1,0 +1,25 @@
+# CocoaPods 集成示例的 Podfile。
+#
+# 用法：
+#   1) 在本目录执行 `pod install`
+#   2) 打开 PodExample.xcworkspace（注意不是 .xcodeproj）
+#   3) 在 PodExample/ViewController.swift 顶部加上 `import CooDialog`，
+#      即可按 Examples/SPMExample 里的写法使用同一套 API
+#
+# `:path` 指向仓库根目录的本地源码，因此无需先把库发布到 CocoaPods 即可验证集成；
+# 真实项目里应改为 `pod 'CooDialog'`（走远端版本，见 README 的安装章节）。
+
+platform :ios, '15.0'
+
+target 'PodExample' do
+  use_frameworks!
+  pod 'CooDialog', :path => '../../'
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+    end
+  end
+end

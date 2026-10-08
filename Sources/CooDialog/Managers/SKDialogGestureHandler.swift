@@ -439,6 +439,14 @@ extension SKDialogGestureHandler {
             completion: nil
         )
     }
+
+    /// 让"当前启用中"的手势收到 `.cancelled` 并回到未识别状态；禁用态原样保留。
+    /// 判定与操作写在一处，避免调用点各自判断（那正是"停手"调用会把禁用手势打开的原因）。
+    private func cancelIfEnabled(_ gesture: UIGestureRecognizer?) {
+        guard let gesture, gesture.isEnabled else { return }
+        gesture.isEnabled = false
+        gesture.isEnabled = true
+    }
 }
 
 // MARK: - Debug & Testing
@@ -466,11 +474,12 @@ extension SKDialogGestureHandler {
     /// 手法说明：把 isEnabled 先置 false 再置回 true，会让正在进行的手势收到 `.cancelled`
     /// 并回到未识别状态；比直接 removeGestureRecognizer 温和（保留识别器与其绑定关系，
     /// 也不会打断随后可能到来的新触摸）。通常用于弹窗即将关闭、需要立刻停止交互的场景。
+    ///
+    /// - Important: 只对**当前处于启用状态**的手势做这一对操作。禁用态的手势（居中弹窗、
+    ///   或宿主把 `enablePanGestureDismiss` / `dismissOnBackgroundTap` 关掉）必须原样留着：
+    ///   无条件置回 true 会把配置明确禁止的交互重新打开，用户随后就能按禁忌的方式关掉弹窗。
     func cancelCurrentGestures() {
-        panGesture?.isEnabled = false
-        panGesture?.isEnabled = true
-
-        backgroundTapGesture?.isEnabled = false
-        backgroundTapGesture?.isEnabled = true
+        cancelIfEnabled(panGesture)
+        cancelIfEnabled(backgroundTapGesture)
     }
 }

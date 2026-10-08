@@ -257,8 +257,7 @@ struct SKDialogBehaviourTests {
     }
 
     @Test("SKDialogConfig 的工厂方法与构建器走同一套尺寸映射")
-    func configFactoriesMapToExplicitModes() {
-        #expect(SKDialogConfig.centerDialog().sizeMode == .contentAdaptive)
+    func configFactoriesMapToExplicitModes() {        #expect(SKDialogConfig.centerDialog().sizeMode == .contentAdaptive)
         #expect(SKDialogConfig.centerDialog(width: 300).sizeMode == .fixedWidth(300))
         #expect(SKDialogConfig.centerDialog(height: 200).sizeMode == .fixedHeight(200))
         #expect(SKDialogConfig.centerDialog(width: 300, height: 200).sizeMode == .fixed(width: 300, height: 200))
@@ -267,6 +266,24 @@ struct SKDialogBehaviourTests {
         #expect(SKDialogConfig.bottomSheet(height: 200).sizeMode == .fixedHeight(200))
         #expect(SKDialogConfig.topSheet().sizeMode == .contentAdaptive)
         #expect(SKDialogConfig.topSheet(height: 200).sizeMode == .fixedHeight(200))
+    }
+
+    @Test("预设与配置工厂的圆角一致：同一个面板不该有两种默认观感")
+    func presetsMatchConfigFactoryCornerRadius() {
+        // 底部：两者都应是 16（历史上分别是 12 与 16）
+        let bottom = SKDialog.bottom().show()
+        #expect(bottom.config.cornerRadius == 16)
+        #expect(bottom.config.cornerRadius == SKDialogConfig.bottomSheet().cornerRadius)
+        bottom.dismiss()
+
+        // 居中与顶部同样对齐（这两条此前已一致，一并钉住以防回退）
+        let center = SKDialog.center().show()
+        #expect(center.config.cornerRadius == SKDialogConfig.centerDialog().cornerRadius)
+        center.dismiss()
+
+        let top = SKDialog.top().show()
+        #expect(top.config.cornerRadius == SKDialogConfig.topSheet().cornerRadius)
+        top.dismiss()
     }
 
     @Test("自适应模式下动态改高度：补建的约束只建一条并被复用，且引用与账本不脱节")
@@ -347,7 +364,7 @@ struct SKDialogBehaviourTests {
         dialog.presentDialog()
         #expect(willStartCount == 1)
 
-        // 重复发起被 isPresenting 去重：同一个弹窗的入场动画只播一次
+        // 重复发起被展示状态机去重：同一个弹窗的入场动画只播一次
         dialog.presentDialog()
         #expect(willStartCount == 1)
 

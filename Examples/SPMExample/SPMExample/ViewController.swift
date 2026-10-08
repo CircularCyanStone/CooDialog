@@ -2,12 +2,12 @@
 //  ViewController.swift
 //  SPMExample
 //
-//  验证台首页：把 CooDialog 的行为按"展示模式 + 能力"分成六组，一个个点开即可核对。
+//  验证台首页：把 CooDialog 的行为按"展示模式 + 能力"分成七组，一个个点开即可核对。
 //  顶部吸顶的"回调轨迹"记录每个案例的动画回调，因此"回调有没有触发、顺序对不对、
 //  失败路径有没有回调"不用去看控制台。
 //
 //  代码分布：案例实现在 Cases/（A 形态与预设 / B 动画 / C 交互 / D 运行时 / E 样式 /
-//  V viewController 模式），内容视图在 ContentViews/，公共辅助在 Support/。
+//  V viewController 模式 / T 转场验证），内容视图在 ContentViews/，公共辅助在 Support/。
 //
 
 import UIKit
@@ -40,6 +40,7 @@ final class ViewController: UIViewController {
             makeSection("D · 运行时操作（window 模式）", cases: RuntimeCases.all),
             makeSection("E · 样式（window 模式）", cases: StyleCases.all),
             makeSection("V · viewController 模式", cases: HostedCases.all),
+            makeSection("T · 转场验证（关闭后的收尾）", cases: TransitionCases.all),
         ])
         list.axis = .vertical
         list.spacing = 28

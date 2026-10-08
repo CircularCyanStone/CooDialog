@@ -5,8 +5,8 @@ iOS 弹窗组件：一个基于 AutoLayout 的轻量弹窗，提供**底部面�
 
 - 部署目标：iOS 13+
 - 语言：Swift（SPM 下使用 Swift 6 语言模式；CocoaPods 下按 podspec 的 `swift_version` 编译）
-- 工具链：SPM 需要 **Swift 6.2+（Xcode 26+）**——`Package.swift` 声明的 `swift-tools-version: 6.2`
-  是硬门槛，低于它的工具链无法解析这个包；CocoaPods 走 podspec 的 `swift_version = '5.0'`，
+- 工具链：SPM 需要 **Xcode 16+**（`Package.swift` 声明的 `swift-tools-version: 6.0`
+  是硬门槛，低于它的工具链无法解析这个包）；CocoaPods 走 podspec 的 `swift_version = '5.0'`，
   Xcode 15+ 即可（源码用到 `@MainActor` 与 `MainActor.assumeIsolated`）
 - 依赖：仅 UIKit
 
@@ -87,6 +87,8 @@ dialog.updateContainerHeight(320)
 dialog.dismiss()                              // 播放退场动画后收尾
 dialog.dismiss { print("已关闭") }             // 带关闭完成回调
 dialog.addCompletionHandler { /* 追加回调，先注册的先执行 */ }
+
+dialog.isPresenting                           // 当前是否还开着：挂到宿主上即为 true，收尾完成变 false
 ```
 
 内容视图里无需持有弹窗引用，沿响应链反查即可：
@@ -168,11 +170,23 @@ struct MyAnimation: SKDialogAnimationProtocol {
   若弹窗在入场途中被关闭，它不会触发（此时"显示完成"已经不再成立）。
 - **内容自适应需要内在尺寸**：`.contentAdaptive`（或只固定一个方向）时容器尺寸由内容的内在尺寸决定，
   内容若没有任何尺寸来源，容器会退化为 0 尺寸。
+- **关闭可以早于上屏**：`show()` 之后、入场动画发起之前调用 `dismiss()` 同样有效——
+  它会走完整的关闭收尾（摘掉 present 关系、回收自建 window、触发各项回调），
+  此后到达的 `viewDidAppear` 也不会再把弹窗拉起来。任何时候都可以用
+  `SKDialogViewController.isPresenting` 判断弹窗是否还开着。
+- **键盘不归库管**：弹窗不会自动避让键盘。内容里有输入框时由宿主自行处理
+  （监听键盘通知调整内容约束，或用 `dialog.updateContainerHeight(_:)` 让容器跟着键盘长高）。
 
 ## 示例
 
-`Examples/` 下有两个 Xcode 工程：`SPMExample` 演示 Swift Package 集成与常见用法；
-`PodExample` 演示 CocoaPods 集成（需先 `pod install`）。
+`Examples/` 下有两个 Xcode 工程：
+
+- **`SPMExample`**：演示 Swift Package 集成与常见用法，直接打开即可运行
+  （工程用 `XCLocalSwiftPackageReference` 指向仓库根目录，不需要网络）。
+  案例按展示模式分组：预设与样式、九种动画、运行时改尺寸与回调、手势交互、宿主模式。
+- **`PodExample`**：演示 CocoaPods 集成。在 `Examples/PodExample` 目录下执行 `pod install`
+  （Podfile 已入库，用 `:path => '../../'` 指向本地源码），然后打开 `PodExample.xcworkspace`
+  （注意不是 `.xcodeproj`），并按工程内 `ViewController.swift` 顶部的说明加上 `import CooDialog`。
 
 ## License
 

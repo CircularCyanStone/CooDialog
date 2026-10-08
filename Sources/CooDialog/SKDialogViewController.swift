@@ -28,10 +28,12 @@
 //
 // 生命周期关键时序（理解本文件的主线）：
 // init(config:) → viewDidLoad（建 UI → 建约束 → 装手势 → 预置动画起点）
-// → show()（确定宿主 → present，只负责上屏）
-// → viewDidAppear（触发 presentDialog，播入场动画）
+// → show()（确定宿主 → present，只负责上屏；状态推进到"已挂到宿主上"）
+// → viewWillAppear（宿主自己 present 时也在这里记下"已挂到宿主上"）
+// → viewDidAppear（触发 presentDialog，播入场动画；状态推进到"展示中"）
 // → viewDidLayoutSubviews（动画开始前校正滑动起点）
-// → dismiss()（退场动画 → 摘掉 present 关系 → 回收自建 window → 触发关闭回调）
+// → dismiss()（退场动画 → 摘掉 present 关系 → 回收自建 window → 触发关闭回调；
+//   状态推进到"已收尾"，此后不再发起入场）
 
 import UIKit
 
@@ -40,7 +42,7 @@ import UIKit
 /// 对外以 `open` 暴露：宿主可以继承它覆写生命周期方法，并用公开的 `containerView` / `config` /
 /// 各动画回调做定制。
 /// 扩展面刻意止步于此——核心流程（`show` / `dismiss` / `addContentView`）只可调用、不可覆写：
-/// 展示方式由 `config.presentationMode` 表达，覆写它们会绕过 `isPresenting` 去重、window 回收等内部时序，
+/// 展示方式由 `config.presentationMode` 表达，覆写它们会绕过展示状态机的去重、window 回收等内部时序，
 /// 而这些时序正是本类对外契约（回调必触发、window 必释放）的保障。
 /// 唯一的例外是 `dismiss(animated:completion:)`：它既是本类的关闭入口、又是 UIKit 的公开方法，
 /// 必须覆写才能保证两种调用写法行为一致（详见方法说明），子类无需也不应再动它。
@@ -97,10 +99,39 @@ open class SKDialogViewController: UIViewController {
     /// 背景遮罩视图：铺满整个控制器 view，负责拦截点击与提供视觉压暗
     public let backgroundView: UIView = UIView()
 
-    /// 是否正在显示（含入场动画中）。
-    /// 用途：viewDidAppear 与 show() 都可能发起入场，用它保证入口只被真正执行一次；
-    /// 同时作为 dismiss 的前置条件。
-    private var isPresenting = false
+    /// 本次展示的状态（唯一的状态源）。
+    ///
+    /// 替代了原先"一个 isPresenting 布尔同时兼三职"的写法。那个写法把两件事混在了一起：
+    /// "入场动画发起了没有"与"弹窗已经挂到宿主上没有"。二者有一个时间差——
+    /// `show()` 成功（已 present 到宿主上）到 `viewDidAppear`（入场发起）之间，
+    /// 旧写法认为"还没展示"，于是那段时间里的 `dismiss()` 会被整体跳过：
+    /// present 关系摘不掉、自建 window 不回收（window 与控制器成环泄漏），
+    /// 而随后到达的 viewDidAppear 还会把已经要求关闭的弹窗重新拉起来。
+    /// 拆成四档之后，"有没有东西需要收尾"与"还要不要发起入场"各由一个状态回答。
+    private var presentationState: PresentationState = .idle
+
+    /// 展示状态机的四档（对外只暴露 `isPresenting` 这一个布尔视图）
+    private enum PresentationState {
+        /// 尚未进入展示流程：既可能还没调用 `show()`，也可能是 `show()` 没能上屏
+        /// （无可用场景 / 宿主已 present 其它控制器 / 宿主视图未进入窗口层级）。
+        /// 宿主自己 `present` 时也先停在这一档，由 viewWillAppear 推进。
+        case idle
+        /// 已经挂到宿主上，但入场动画还没发起（等 viewDidAppear）。
+        /// 这一档与 `.idle` 的差别正是"有没有东西需要收尾"（present 关系、自建 window）。
+        case presented
+        /// 入场已发起，展示中（含入场动画进行中）
+        case presenting
+        /// 已进入关闭流程并完成收尾：此后不再发起入场，重复 dismiss 只回调
+        case finished
+    }
+
+    /// 弹窗是否处于展示中：从 `show()` 把它挂到宿主上那一刻起为 true，直到关闭收尾完成。
+    ///
+    /// 用途：宿主判断"这个弹窗现在还开着吗"（例如异步回调里避免重复弹窗、或决定要不要再展示），
+    /// 不必自己额外维护标记。注意它涵盖"已挂到宿主上、但入场动画尚未发起"这一段。
+    public var isPresenting: Bool {
+        presentationState == .presented || presentationState == .presenting
+    }
 
     /// 弹窗关闭完成回调（两种显示模式语义一致：退场动画结束、收尾动作已执行之后）。
     /// 执行时机：退场动画结束的那一刻，此时自建 window（若有）已隐藏、key window 已归还，
@@ -125,8 +156,9 @@ open class SKDialogViewController: UIViewController {
     // MARK: - Initialization
 
     /// 指定配置初始化（构建器与配置便利方法走的都是这条路径）。
-    /// 这里立即创建动画管理器并搭建视图层级（setupViewController → 触发后续生命周期），
-    /// 因此初始化后即可安全调用公开 API。
+    /// 这里只创建动画管理器并配置模态转场参数（setupViewController）；视图层级与约束要到
+    /// viewDidLoad 才搭建（首次访问 `view` 时由 UIKit 触发，见 setupUI 的调用点），
+    /// 因此初始化后即可安全调用公开 API，但此刻还没有可用的视图。
     public init(config: SKDialogConfig = SKDialogConfig()) {
         self.config = config
         self.animationManager = SKDialogAnimationManager()
@@ -156,6 +188,19 @@ open class SKDialogViewController: UIViewController {
         gestureHandler.setupGestures()
     }
 
+    /// 视图即将上屏：把"弹窗已经挂到宿主上"这件事记进状态机。
+    ///
+    /// 为什么放在这里而不是只在 `show()` 里记：展示可能由两条路发起——
+    /// 库的 `show()`，或者宿主自己 `present(dialog, animated:)`（README 承诺这条路径同样成立）。
+    /// 后者不经过本类的任何方法，只有 UIKit 的生命周期回调能观察到。
+    /// "即将上屏"恰好等价于"已经挂到宿主上"，因此从这一刻起 `dismiss()` 就必须负责收尾。
+    ///
+    /// - Note: 只从 `.idle` 推进——已经关闭（`.finished`）的弹窗不得被迟到的生命周期回调复活。
+    open override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        markAttachedToHost()
+    }
+
     /// 入场动画的触发点（**唯一**的一个）。
     ///
     /// 为什么在这个时机播放：viewDidAppear 表示视图已经真正出现在屏幕上、且这一轮布局已完成，
@@ -163,14 +208,13 @@ open class SKDialogViewController: UIViewController {
     ///（或被首帧吞掉），用户看不到过程。放在这里还有个附带好处：无论宿主是走 `show()`
     /// 还是自己 present 本控制器，只要视图上屏就一定会走到，不需要在别处补触发点。
     ///
-    /// 为什么还要 `isPresenting` 守卫：viewDidAppear 不是"只来一次"的回调——
-    /// 弹窗被别的界面盖住又重新露出、或关闭后再次展示时都会再触发一次，
-    /// 而入场动画只应播一次（重复播会让动画互相打断）。
+    /// 为什么还要状态守卫：viewDidAppear 不是"只来一次"的回调——
+    /// 弹窗被别的界面盖住又重新露出时会再触发一次，而入场动画只应播一次
+    ///（重复播会让动画互相打断）；此外关闭之后到达的 viewDidAppear 也不能把弹窗重新拉起来。
+    /// 两件事都由 `presentDialog()` 开头的状态守卫兜住，因此这里直接调用它即可。
     open override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        if !isPresenting {
-            presentDialog()
-        }
+        presentDialog()
     }
 
     /// 布局完成后校正滑动动画的起点（详见 SKDialogAnimationStateManager）。
@@ -199,7 +243,7 @@ open class SKDialogViewController: UIViewController {
     /// 这是与 `SKDialog` 构建器并列的另一种用法：继承本类后直接调用本方法即可展示，
     /// 不需要经过构建器。
     /// - Note: 刻意非 `open`：展示方式的差异请通过 `config.presentationMode` 表达；
-    ///   覆写本方法会绕过 `isPresenting` 去重与收尾逻辑（window 回收、系统 dismiss）。
+    ///   覆写本方法会绕过展示状态机与收尾逻辑（window 回收、系统 dismiss）。
     ///   返回 `Self` 与是否 `open` 无关，子类照样能拿到自己的类型。
     ///
     /// - Parameter completion: **显示完成**回调（present 转场结束后触发，window 模式同样如此）。
@@ -213,6 +257,10 @@ open class SKDialogViewController: UIViewController {
     ///   "动画何时开始"是两个职责，各自只有一个归属，不需要在多个时机兜底。
     @discardableResult
     public func show(completion: (() -> Void)? = nil) -> Self {
+        // 同一个实例被再次展示时，先把上一轮收尾后的状态清回起点，
+        // 否则这一轮会被上一轮的 .finished 挡住（入场动画永远不会发起）
+        prepareForRePresent()
+
         // 拿不到可用宿主时同样要回调：宿主既看不到弹窗、也收不到通知是最糟的结果
         //（UIKit 拒绝 present 时不会调用 completion），见 presentationHost() 的两个前置条件。
         guard let host = presentationHost() else {
@@ -224,6 +272,12 @@ open class SKDialogViewController: UIViewController {
         }
 
         host.present(self, animated: false) { completion?() }
+
+        // present 调用本身会同步建立呈现关系，因此这里立刻记下"已挂到宿主上"：
+        // 从这一刻起 dismiss() 就必须负责收尾，**哪怕入场动画还没发起**（viewDidAppear 未到）。
+        // 正常情况下 viewWillAppear 已在 present 内部推进过一次，这里是兜底与显式化
+        markAttachedToHost()
+
         return self
     }
 
@@ -258,12 +312,30 @@ open class SKDialogViewController: UIViewController {
     ///     宿主不必自己判断当前状态。
     /// - Note: 本类全部关闭路径（背景点击 / 拖拽关闭 / `UIView.closeSKDialog()` / 宿主直接调用）
     ///   都收敛到这里，因此覆写它会一次性替换掉所有路径的行为，子类无需也不应再动它。
+    ///
+    /// 什么算"一次需要收尾的关闭"：只要弹窗已经挂到宿主上（`.presented` / `.presenting`，
+    /// 即 `isPresenting` 为 true）就收尾。这里刻意**不要求入场动画已经发起**——
+    /// `show()` 成功之后、`viewDidAppear` 之前调用 dismiss 是合法时序（宿主当场改变主意、
+    /// 页面紧接着被销毁等），漏掉那一段会让 present 关系摘不掉、自建 window 不回收
+    ///（window 与控制器成环泄漏），随后到达的 viewDidAppear 还会把弹窗重新拉起来。
     open override func dismiss(animated flag: Bool = true, completion: (() -> Void)? = nil) {
-        guard isPresenting else {
+        // 只有"已经挂到宿主上（或正在展示）"的弹窗才有东西需要收尾：
+        // - `.idle`：从未上屏（show() 没能展示，或压根没调用 show），没有 present 关系要摘；
+        // - `.finished`：上一轮已关闭，直接返回即为"关闭是幂等的"。
+        // 两者都只回调，保证"调用 dismiss 一定会收到完成通知"，宿主不必自己判断状态。
+        guard presentationState == .presented || presentationState == .presenting else {
             completion?()
             return
         }
-        isPresenting = false
+
+        // 立刻推进到 `.finished`：此后到达的 viewDidAppear 不会再发起入场（弹窗不会被"复活"），
+        // 重复 dismiss 也会直接走进上面那个分支
+        presentationState = .finished
+
+        // 冻结布局校正：`.presenting` 时它已由入场链路推进过，而"首次上屏前就关闭"这条路径上
+        // 它仍停在 .initial——若不推进，这次关闭期间的任何一次布局都会改写容器 transform，
+        // 把正在播放的退场动画取消掉（详见 SKDialogAnimationStateManager）
+        animationStateManager.markAnimationCompleted()
 
         // 通知关闭流程开始（无论是否播放动画，宿主的清理逻辑都不该被跳过）
         dismissAnimationWillStartHandler?()
@@ -375,11 +447,16 @@ extension SKDialogViewController {
     /// 最后执行动画；动画**正常结束**时更新内部状态、触发 "did finish" 回调，并立刻清空这两个回调；
     /// 若入场被打断（弹窗在入场途中被关闭），则只推进内部状态、不触发 "did finish"
     /// （此时弹窗已进入关闭流程，再报告"显示完成"会误导宿主）。
-    /// 提前置 isPresenting = true 的角色有两层：既是"重复调用直接返回"的闸门，
-    /// 也是"弹窗是否处于展示中"的状态（dismiss 的前置条件、是否报告 did finish 都看它）。
+    /// 开头那次状态推进（→ `.presenting`）的角色有两层：既是"重复调用直接返回"的闸门，
+    /// 也是"弹窗是否处于展示中"的判定（是否报告 did finish 就看它）。
     func presentDialog() {
-        guard !isPresenting else { return }
-        isPresenting = true
+        // 状态守卫：只有"这一轮还没发起过入场"才继续。
+        // - `.idle`：宿主自己 present 的路径（没经过 show()，状态仍停在 idle）；
+        // - `.presented`：库的 show() 已把它挂上宿主，等这一次上屏。
+        // `.presenting` 是重复调用（viewDidAppear 又来了）；`.finished` 是已经关闭过——
+        // 关闭后迟到的 viewDidAppear 不得把弹窗重新拉起来。
+        guard presentationState == .idle || presentationState == .presented else { return }
+        presentationState = .presenting
 
         // 通知动画即将开始
         presentAnimationWillStartHandler?()
@@ -406,7 +483,7 @@ extension SKDialogViewController {
             // 入场动画被打断时（用户在 0.3 秒内点了遮罩、或代码紧接着调用了 dismiss）
             // 这个回调同样会到达，而此刻弹窗已经进入关闭流程。注意上一行的状态推进
             // 不能跟着一起跳过：markAnimationCompleted 是布局校正的开关。
-            if self?.isPresenting == true {
+            if self?.presentationState == .presenting {
                 self?.presentAnimationDidFinishHandler?()
             }
             // 及时清理回调，避免内存泄漏
@@ -499,6 +576,31 @@ extension SKDialogViewController {
         // 注：访问 host.view 会让尚未加载的视图开始加载，与 UIKit 在 present 内部的行为一致
         guard host.view.window != nil, host.presentedViewController == nil else { return nil }
         return host
+    }
+
+    /// 把状态从 `.idle` 推进到 `.presented`（"弹窗已经挂到宿主上"）。
+    ///
+    /// 只从 `.idle` 起步：`.presenting` / `.finished` 都不允许被回退，否则关闭中的弹窗
+    /// 会被一次迟到的生命周期回调拉回"待展示"。两个调用点覆盖两条展示路径：
+    /// `show()`（present 之后）与 `viewWillAppear`（宿主自己 present 的那条路）。
+    private func markAttachedToHost() {
+        if presentationState == .idle {
+            presentationState = .presented
+        }
+    }
+
+    /// 为"同一个实例再次展示"做准备：把上一轮收尾后的状态清回起点。
+    ///
+    /// 只在 `.finished`（上一轮已完整收尾）时生效——正在展示中的弹窗不做任何重置，
+    /// 那种情况下的重复 `show()` 会被 `presentationHost()` 的前置条件挡下
+    ///（宿主已经 present 着本弹窗），不该影响正在进行的那一轮。
+    private func prepareForRePresent() {
+        guard presentationState == .finished else { return }
+
+        presentationState = .idle
+        // 入场状态机也要回到起点：它记着上一轮的 .final，不重置的话新一轮的首帧预置
+        // 与布局校正都不会发生（容器会以"上一轮的终点"上屏）
+        animationStateManager.prepareForReuse()
     }
 
     /// 回收自建 window（非 window 模式时为空操作）。

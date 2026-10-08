@@ -339,16 +339,19 @@ public class SKDialog {
 
     // MARK: - Preset Configuration Builders
 
-    /// 创建底部弹窗（预设：从底部滑入 / 内容自适应 / 可拖拽 / 延伸到安全区）。
+    /// 创建底部弹窗（预设：从底部滑入 / 内容自适应 / 圆角 16 / 可拖拽 / 延伸到安全区）。
     ///
     /// 之所以提供预设而不是让宿主每次手写一串配置：这三套参数是经过验证的常见组合
     /// （底部面板、居中提示、顶部通知条），预设能让普通用法保持一行代码，
     /// 需要偏离时再用链式方法覆盖其中的某一项。
+    /// - Note: 圆角与 `SKDialogConfig.bottomSheet()` 的默认值一致——两者曾分别是 12 与 16，
+    ///   同一个"底部面板"出现两种默认观感，现已对齐。
     public static func bottom() -> SKDialog {
         return SKDialog()
             .position(.bottom)
             .animation(.slideFromBottom)
             .margins(UIEdgeInsets.zero)
+            .cornerRadius(16)
             .contentAdaptive()
             .enablePanGestureDismiss()
             .extendToSafeArea(true)

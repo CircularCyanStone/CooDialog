@@ -23,11 +23,16 @@
  * 距离公式不在这里：滑动距离取自 `SlideAnimation.slideOffset`（全库唯一一处），
  * 与动画实现共用，因此"预置首帧"与"动画起点"不会出现位置跳变。
  *
- * 状态推进（谁改状态、何时改）——三次推进构成完整生命周期：
+ * 状态推进（谁改状态、何时改）——四次推进构成完整生命周期：
  * - `setupInitialAnimationState()`（由控制器 viewDidLoad 调用）：置为 .initial
  * - `SKDialogViewController.presentDialog()` 发起动画前：先校正一次起点，
  *   再调用 markAnimationStarted() 置为 .animating，冻结动画期间的布局校正
  * - `SKDialogViewController.presentDialog()` 的入场动画完成回调：调用 markAnimationCompleted() 置为 .final
+ * - `SKDialogViewController.dismiss()`：同样调用 markAnimationCompleted() 冻结布局校正——
+ *   "首次上屏前就关闭"（入场还没发起，状态仍是 .initial）的路径上若不推进，
+ *   关闭期间的任何一次布局都会把正在播放的退场动画取消掉
+ * - `SKDialogViewController.show()`（同一个实例再次展示）：调用 prepareForReuse()
+ *   回到 .initial 并重设首帧状态，否则新一轮不会做首帧预置与布局校正
  *
  * 为什么 .animating 这一档是必需的：`updateSlideOffsetAfterLayout()` 会直接改写
  * 容器的 transform，而在 UIView 动画进行中改写同一属性会**取消该动画**并把容器留在起点。
@@ -149,9 +154,20 @@ class SKDialogAnimationStateManager {
     }
 
     /// 标记入场动画完成：状态推进到 .final，此后 updateSlideOffsetAfterLayout() 不再改写容器。
-    /// 调用方：SKDialogViewController.presentDialog() 的动画完成回调。
+    /// 调用方：`SKDialogViewController.presentDialog()` 的动画完成回调，
+    /// 以及 `SKDialogViewController.dismiss()`（关闭时统一冻结布局校正）。
     func markAnimationCompleted() {
         currentAnimationState = .final
+    }
+
+    /// 回到初始状态并重新应用首帧预置：供"同一个弹窗实例再次展示"使用。
+    /// 调用方：`SKDialogViewController.show()`（经 prepareForRePresent()，仅在一轮收尾之后）。
+    ///
+    /// 与 `markAnimationStarted()` 的区别：那个只改状态（不碰视图，因为动画马上要自己设起点），
+    /// 这里还要重设首帧状态——新一轮展示的容器必须先回到起点，否则会以上一轮的终点上屏。
+    func prepareForReuse() {
+        currentAnimationState = .initial
+        setupInitialAnimationState()
     }
 }
 
@@ -224,6 +240,8 @@ extension SKDialogAnimationStateManager {
 
     /// 强制重置：状态回到 .initial 并重新应用初始状态。
     /// 用于测试或异常恢复（例如动画被打断后需要重新走一遍入场）。
+    /// - Note: 生产路径上的"再次展示"走 `prepareForReuse()`，两者实现相同，
+    ///   但一个是异常恢复、一个是正常流程，故各自保留语义明确的名字。
     func forceResetState() {
         currentAnimationState = .initial
         setupInitialAnimationState()

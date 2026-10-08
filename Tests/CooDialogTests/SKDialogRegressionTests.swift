@@ -186,7 +186,7 @@ struct SKDialogRegressionTests {
         dialog.presentAnimationDidFinishHandler = { didFinish = true }
 
         dialog.presentDialog()                  // 发起入场：动画被挂起，尚未结束
-        dialog.dismiss()                  // 展示途中关闭：isPresenting 置为 false，退场立即收尾
+        dialog.dismiss()                  // 展示途中关闭：状态推进到"已收尾"，退场立即收尾
         animation.finishPresentAnimation()      // 入场动画"这才结束"
 
         // 修复前：入场的完成回调照样触发 did finish，

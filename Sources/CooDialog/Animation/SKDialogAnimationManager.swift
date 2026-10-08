@@ -101,6 +101,14 @@ extension SKDialogAnimationType {
     ///
     /// 扩展指引：新增内置**滑动**类型时，只需在 `slideDirection` 里补一个 case，这里不用动；
     /// 新增**非滑动**类型时，编译器会因为 switch 不再穷尽而报错——这正是我们要的提醒。
+    ///
+    /// - Note: 显式标注 `@MainActor`。本方法构造的都是 `SKDialogAnimationProtocol` 的实现，
+    ///   而该协议是主 actor 隔离的（实现类型随之隐式隔离），因此构造动作必须在主 actor 上。
+    ///   不标注时 Swift 5 语言模式（CocoaPods 走 podspec 的 `swift_version = '5.0'`）
+    ///   会把本方法视为 nonisolated，进而报
+    ///   "call to main actor-isolated initializer in a synchronous nonisolated context"；
+    ///   Swift 6 模式的隔离推断恰好能通过，所以这个问题只在 pod 侧暴露。
+    @MainActor
     func makeAnimation() -> SKDialogAnimationProtocol {
         switch self {
         case .custom(let animation):

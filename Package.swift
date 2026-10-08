@@ -1,5 +1,7 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
+// 取 6.0 而非更高：源码没有使用 6.1 / 6.2 的特性（`swiftLanguageModes` 本身也是 6.0 引入的 API），
+// 门槛定在 6.0 可以让 Xcode 16 及以上的工具链都能解析这个包。
 
 import PackageDescription
 
