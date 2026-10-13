@@ -79,6 +79,32 @@ extension UIView {
     }
 }
 
+// MARK: - Internal
+
+/// 库内使用的视图层级工具，不对外公开（沿用"只公开必要 API"的约定）。
+@MainActor
+extension UIView {
+
+    /// 沿响应链向上找到"管理本视图的控制器"（inline 模式挂载时用得上：
+    /// 能挂进某个控制器就 `addChild`，见 `CooDialogViewController.attachInline(to:)`）。
+    ///
+    /// 为什么不公开：宿主想知道"我在不在弹窗里"用 `isInCooDialog` 就够了，
+    /// 不需要自己找控制器；保持在 internal 也避免 public extension 把方法扩散到
+    /// 整个 UIView 命名空间（与 findCooDialogViewController 同一条约定）。
+    /// - Note: 视图尚未挂到任何控制器（纯 view 层级）时返回 nil——这不是异常情况：
+    ///   inline 模式允许挂在没有控制器的视图上，只是拿不到 addChild 带来的那部分收益。
+    var nearestViewController: UIViewController? {
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let viewController = current as? UIViewController {
+                return viewController
+            }
+            responder = current.next
+        }
+        return nil
+    }
+}
+
 // MARK: - Private
 
 @MainActor

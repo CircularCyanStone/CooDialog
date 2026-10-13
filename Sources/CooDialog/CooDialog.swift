@@ -98,6 +98,18 @@ public class CooDialog {
         return self
     }
 
+    /// 设置内联显示：弹窗挂到指定视图上，全程不产生 present 关系
+    /// （等价于写 `presentationMode(.inline(hostView))`）。
+    ///
+    /// 传入的视图就是弹窗的"画布"：遮罩铺满它、容器的定位与滑动动画都以它为基准、
+    /// 超出它的部分会被裁剪。适合"弹窗只属于页面里的某一块区域"的场景。
+    /// - Note: 配置会强引用该视图（见 CooDialogPresentationMode 的内存提示）。
+    @discardableResult
+    public func inline(in hostView: UIView) -> CooDialog {
+        config.presentationMode = .inline(hostView)
+        return self
+    }
+
     /// 设置尺寸模式（等价于写 config.sizeMode）。
     /// - Important: 与 `size(width:height:)` / `contentAdaptive()` / `fixedWidth(_:)` /
     ///   `fixedHeight(_:)` 是同一份数据的不同入口，**后调用的会覆盖先调用的**

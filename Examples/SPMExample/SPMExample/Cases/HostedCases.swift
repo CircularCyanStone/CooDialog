@@ -83,7 +83,7 @@ extension ViewController {
     // MARK: - V2 宿主已 present 其它控制器
 
     @objc func showHostedWhileBusy() {
-        let log = self.log
+        _ = self.log
 
         // 先用一个普通页面占住本页的 present 位置
         let blocker = UIViewController()

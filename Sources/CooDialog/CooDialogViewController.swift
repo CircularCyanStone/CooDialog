@@ -21,19 +21,22 @@
 // 并对尺寸管理器开放 setContainerWidth / setContainerHeight 作为唯一的修改入口。
 //
 // 展示与动画的分界（两条线各自只有一个归属，读代码时按这个顺序看）：
-// - "怎么上屏"全部在 show()：两种模式只差"由谁来 present 本控制器"（见 presentationHost()），
-//   确定宿主之后就只剩一句 host.present，差异被压到最小
-// - "什么时候播入场动画"只有 viewDidAppear：视图上屏是 UIKit 的事件，
-//   走哪条展示路径都会走到它，因此不需要在别处补兜底调用
+// - "怎么上屏"全部在 show()：三条路径只差"由谁承载弹窗的视图"——
+//   `.window` / `.viewController` 由宿主控制器 present（见 presentationHost()），
+//   `.inline` 直接挂到传入的视图上（见 attachInline(to:)），全程不产生 present 关系
+// - "什么时候播入场动画"：present 的两条路径由 viewDidAppear 触发（视图上屏是 UIKit 的事件，
+//   怎么上屏都会走到它）；inline 的上屏不是 UIKit 的转场事件，也不保证有宿主控制器，
+//   因此由 show() 在同一次调用里显式发起。两条线都只发起一次，靠展示状态机去重
 //
 // 生命周期关键时序（理解本文件的主线）：
 // init(config:) → viewDidLoad（建 UI → 建约束 → 装手势 → 预置动画起点）
-// → show()（确定宿主 → present，只负责上屏；状态推进到"已挂到宿主上"）
+// → show()：present 路径确定宿主并 present，只负责上屏（状态推进到"已挂到宿主上"）；
+//   inline 路径挂载到宿主视图，并在同一次调用里接着发起入场
 // → viewWillAppear（宿主自己 present 时也在这里记下"已挂到宿主上"）
-// → viewDidAppear（触发 presentDialog，播入场动画；状态推进到"展示中"）
+// → viewDidAppear（present 路径在此触发 presentDialog，播入场动画；状态推进到"展示中"）
 // → viewDidLayoutSubviews（动画开始前校正滑动起点）
-// → dismiss()（退场动画 → 摘掉 present 关系 → 回收自建 window → 触发关闭回调；
-//   状态推进到"已收尾"，此后不再发起入场）
+// → dismiss()（退场动画 → 摘掉载体：present 关系或宿主视图挂载 → 回收自建 window
+//   → 触发关闭回调；状态推进到"已收尾"，此后不再发起入场）
 
 import UIKit
 
@@ -98,6 +101,11 @@ open class CooDialogViewController: UIViewController {
 
     /// 背景遮罩视图：铺满整个控制器 view，负责拦截点击与提供视觉压暗
     public let backgroundView: UIView = UIView()
+
+    /// inline 模式的上屏约束：弹窗视图与宿主视图四边贴合（见 attachInline(to:)）。
+    /// 只有 inline 模式会有值；摘除时显式清空（与约束管理器"账本化"的做法一致，
+    /// 不依赖"移除视图会自动移除相关约束"这条系统行为）。
+    private var inlineConstraints: [NSLayoutConstraint] = []
 
     /// 本次展示的状态（唯一的状态源）。
     ///
@@ -201,12 +209,14 @@ open class CooDialogViewController: UIViewController {
         markAttachedToHost()
     }
 
-    /// 入场动画的触发点（**唯一**的一个）。
+    /// 入场动画的触发点（present 的两条路径）。
     ///
     /// 为什么在这个时机播放：viewDidAppear 表示视图已经真正出现在屏幕上、且这一轮布局已完成，
     /// 此时位移与透明度变化才看得见；若在 viewDidLoad 里播，动画会赶在视图上屏之前跑完
     ///（或被首帧吞掉），用户看不到过程。放在这里还有个附带好处：无论宿主是走 `show()`
     /// 还是自己 present 本控制器，只要视图上屏就一定会走到，不需要在别处补触发点。
+    ///（inline 路径不走 present，它的上屏不是 UIKit 的转场事件，因此由 `show()` 显式发起；
+    ///  addChild 之后 UIKit 若仍送来本回调，下面的状态守卫会把它挡掉。）
     ///
     /// 为什么还要状态守卫：viewDidAppear 不是"只来一次"的回调——
     /// 弹窗被别的界面盖住又重新露出时会再触发一次，而入场动画只应播一次
@@ -232,34 +242,43 @@ open class CooDialogViewController: UIViewController {
 
     /// 显示弹窗（展示入口）。
     ///
-    /// 两种模式的差异只有一处：**由谁来 present 本弹窗**。
+    /// 三条路径的差异只有一处：**由谁承载弹窗的视图**。
     /// - `.window`：由 window 管理器自建一个 UIWindow（层级最高、不依赖宿主 VC），
-    ///   并在其中准备一个透明宿主控制器
-    /// - `.viewController(vc)`：直接用宿主指定的控制器
+    ///   并在其中准备一个透明宿主控制器，由它 present
+    /// - `.viewController(vc)`：直接用宿主指定的控制器 present
+    /// - `.inline(view)`：连 present 都不走，把弹窗的视图挂到传入的视图上（见 `attachInline(to:)`）
     ///
-    /// 确定宿主之后，展示动作只有一句 `host.present(self, animated: false)`——
-    /// 系统转场关闭，视觉动画完全由库自绘（见 `CooDialogAnimationUtils`）。
+    /// 前两条确定宿主之后，展示动作只有一句 `host.present(self, animated: false)`——
+    /// 系统转场关闭，视觉动画完全由库自绘（见 `CooDialogAnimationUtils`）；
+    /// 第三条则是一次 `addSubview` 加四条贴合约束。三条路径在"上屏"之后就完全合流。
     ///
     /// 这是与 `CooDialog` 构建器并列的另一种用法：继承本类后直接调用本方法即可展示，
     /// 不需要经过构建器。
     /// - Note: 刻意非 `open`：展示方式的差异请通过 `config.presentationMode` 表达；
-    ///   覆写本方法会绕过展示状态机与收尾逻辑（window 回收、系统 dismiss）。
+    ///   覆写本方法会绕过展示状态机与收尾逻辑（window 回收、系统 dismiss、inline 摘除）。
     ///   返回 `Self` 与是否 `open` 无关，子类照样能拿到自己的类型。
     ///
-    /// - Parameter completion: **显示完成**回调（present 转场结束后触发，window 模式同样如此）。
+    /// - Parameter completion: **显示完成**回调（present 的两条路径在转场结束后触发，
+    ///   window 模式同样如此；`.inline` 没有转场，挂载完成即触发）。
     ///   它不是关闭回调——需要"关闭后执行"的逻辑请用 `addCompletionHandler(_:)` 或
     ///   `dismiss(completion:)`；**无法展示时同样会被调用**，保证"调用必回调"，
     ///   覆盖 window 创建失败（无可用 scene）、宿主已 present 其它控制器、
     ///   以及宿主的视图尚未进入 window 层级三种情形。
     /// - Returns: self，便于链式书写（子类可拿到自己的类型）。
-    /// - Note: **本方法不发起入场动画**，只负责把视图弄上屏。入场动画统一由
-    ///   `viewDidAppear` 触发（见 `presentDialog()`），因此"视图何时真正上屏"与
-    ///   "动画何时开始"是两个职责，各自只有一个归属，不需要在多个时机兜底。
+    /// - Note: **本方法不负责"何时播动画"**，它只负责把视图弄上屏。present 的两条路径上
+    ///   入场统一由 `viewDidAppear` 触发（见 `presentDialog()`）；inline 的上屏不是 UIKit 的
+    ///   转场事件、也不保证有宿主控制器，因此由本方法在同一次调用里显式发起。
+    ///   "视图何时上屏"与"动画何时开始"始终是两个职责，各自只有一个归属，不需要多时机兜底。
     @discardableResult
     public func show(completion: (() -> Void)? = nil) -> Self {
         // 同一个实例被再次展示时，先把上一轮收尾后的状态清回起点，
         // 否则这一轮会被上一轮的 .finished 挡住（入场动画永远不会发起）
         prepareForRePresent()
+
+        // inline 模式在这里分流：它的上屏是"挂到宿主视图上"，不需要宿主控制器
+        if case .inline(let hostView) = config.presentationMode {
+            return showInline(in: hostView, completion: completion)
+        }
 
         // 拿不到可用宿主时同样要回调：宿主既看不到弹窗、也收不到通知是最糟的结果
         //（UIKit 拒绝 present 时不会调用 completion），见 presentationHost() 的两个前置条件。
@@ -287,13 +306,15 @@ open class CooDialogViewController: UIViewController {
     /// UIKit 的实现只做前者，而弹窗还需要播退场动画、回收自建 window、复位展示状态、
     /// 触发关闭回调。不覆写的话，`dialog.dismiss(animated: true)` 会静默绕过这一切——
     /// `.window` 模式下 window 不会回收（window 与控制器互相强引用，一起泄漏），
-    /// `.viewController` 模式下所有"关闭完成"回调都会丢。
+    /// `.viewController` 模式下所有"关闭完成"回调都会丢，
+    /// `.inline` 模式下视图会一直留在画布上（那份挂载没有别人会摘）。
     ///
-    /// 收尾顺序固定为三步，两种展示模式共用同一条路径：
-    /// 1. 把弹窗从宿主上摘下来（系统转场关闭，视觉上只剩库自绘的退场动画）
+    /// 收尾顺序固定为三步，三种展示模式共用同一条路径：
+    /// 1. 把弹窗从载体上摘下来：present 的两条路径是系统转场关闭，`.inline` 是摘掉视图挂载
+    ///    （视觉上都只剩库自绘的退场动画）
     /// 2. `.window` 模式额外回收自建 window（连同 key window 的归还；其它模式为空操作）
     /// 3. 触发"关闭完成"回调
-    /// 顺序不能颠倒：先摘掉 present 关系、再拆 window，引用环才是从里到外解开的；
+    /// 顺序不能颠倒：先摘掉载体关系、再拆 window，引用环才是从里到外解开的；
     /// 回调放在最后，宿主读到的 window / key 状态已经是收尾后的
     /// （系统的移除要到下一次 runloop 才完全落定，因此回调里读 `presentingViewController`
     ///  可能还是旧值——本库承诺的是"视觉上已消失、window 与 key 已收尾"）。
@@ -439,7 +460,9 @@ extension CooDialogViewController {
 
     /// 播放弹窗的入场动画（内部入口，不负责上屏）。
     ///
-    /// 调用时机：**只有 `viewDidAppear` 一处**——视图真正出现在屏幕上时。
+    /// 调用时机只有两处，都在"视图已经上屏"之后：
+    /// - `viewDidAppear`：present 的两条路径（视图上屏是 UIKit 的事件）
+    /// - `showInline(in:completion:)`：inline 路径（挂载不是 UIKit 的事件，由 `show()` 当场发起）
     /// 它假设视图已经在屏幕层级里：对外展示请用 `show()`，单独调用它既不会建 window、
     /// 也不会 present；反过来，把视图弄上屏这件事也不该由它承担（两件事各有唯一归属）。
     ///
@@ -556,9 +579,9 @@ extension CooDialogViewController {
 
     /// 为本次展示确定"由谁来 present 本弹窗"，并确认它当前确实可用。
     ///
-    /// 两种模式**唯一**的差异就在这个方法的开头：window 模式现造一个宿主
+    /// 只服务两条 present 路径，两者的差异就在下面这个分支的开头：window 模式现造一个宿主
     /// （顺带把自建 window 建好上屏），viewController 模式用宿主给的那个。
-    /// 之后的判断与展示动作完全共用。
+    /// 之后的前置条件判断与展示动作完全共用。
     ///
     /// - Returns: 可用的宿主；`nil` 表示这次展示无法进行，`show()` 会走"调用必回调"的失败路径。
     ///   失败有三种可能：没有可用的 UIWindowScene（window 模式）、宿主的视图还没进入 window 层级、
@@ -571,6 +594,11 @@ extension CooDialogViewController {
             host = windowHost
         case .viewController(let given):
             host = given
+        case .inline:
+            // 不可达：inline 在 show() 里已分流到 showInline(in:completion:)。
+            // 保留这个分支既是为了让 switch 穷尽，也是为了将来新增载体时
+            // 编译器能在这里逼出一个"是否走 present"的决定，而不是悄悄漏过
+            return nil
         }
 
         // 注：访问 host.view 会让尚未加载的视图开始加载，与 UIKit 在 present 内部的行为一致
@@ -609,15 +637,137 @@ extension CooDialogViewController {
         windowManager.removeCustomWindow()
     }
 
-    /// 把弹窗从宿主上摘下来（两种模式的收尾终点）。
+    // MARK: - Inline 载体的上屏与摘除
+
+    /// inline 模式的展示入口：挂载 → 记状态 → 发起入场 → 回调。
+    ///
+    /// 与 present 路径的时序对照（这是两条线唯一的分歧点，之后完全合流）：
+    /// - present：`host.present(...)` 建立呈现关系，UIKit 随后触发 viewDidAppear → presentDialog
+    /// - inline：`attachInline(to:)` 建立挂载关系，然后当场调 `presentDialog()`
+    ///
+    /// 为什么要在这里显式发起入场：present 路径能靠 viewDidAppear 拿到"视图已上屏"这个事件，
+    /// 而 inline 的挂载不是 UIKit 的转场，UIKit 不保证送来任何回调（宿主视图可能压根不在
+    /// 任何控制器下，见 attachInline 的 addChild 分支）。让上屏与发起动画收在同一次调用里，
+    /// 就不会出现"视图已可见、动画却要等下一个事件"的空档。
+    /// 万一 addChild 之后 UIKit 又送来一次 viewDidAppear：展示状态机已经推进到 `.presenting`，
+    /// presentDialog 开头的状态守卫会把它挡下，不会重复播动画。
+    ///
+    /// - Note: 挂载本身不设失败分支——宿主视图还没上屏、尺寸还是 0，都照挂不误，
+    ///   因为宿主可能正在布局中。这两种情况只在 DEBUG 下提示（见 attachInline）。
+    ///   因此 `completion` 在这里总是紧接着挂载回调，不像 present 路径那样存在"无法展示"的失败档。
+    private func showInline(in hostView: UIView, completion: (() -> Void)?) -> Self {
+        attachInline(to: hostView)
+        markAttachedToHost()
+        presentDialog()
+        completion?()
+        return self
+    }
+
+    /// 把弹窗挂到宿主视图上（inline 模式的上屏动作）。
+    ///
+    /// 三步，顺序不能变：
+    /// 1. **四边贴合**：把弹窗视图钉到宿主视图上。这一步同时确立了整条链路的"屏幕"——
+    ///    遮罩（钉在 controller.view 上）、容器定位、滑动距离、手势坐标全都以 controller.view
+    ///    为基准，而它现在与宿主视图等大，因此各管理器与动画实现都不需要为 inline 模式写分支
+    /// 2. **挂进宿主控制器**（能挂则挂）：外观回调、响应链（`closeCooDialog` / `isInCooDialog`
+    ///    依赖 `controller.view.next === controller` 这条 UIKit 建立的链接）与 trait 传播
+    ///    都来自这段父子关系。宿主视图不在任何控制器下时跳过——挂载本身照样成立
+    /// 3. **裁剪**：弹窗不得越出这块画布。滑动类动画的起点在画布之外，
+    ///    不裁剪的话容器会先出现在画布之外的界面上（那是"越界"，不是"滑入"）
+    ///
+    /// - Note: 刻意不在这里校验"宿主是否已上屏 / 尺寸是否非 0"：宿主可能正在布局中，
+    ///   此时打断会让它连"先挂上、稍后再弹"都做不到。两种情况各提示一行，判断权交给宿主。
+    private func attachInline(to hostView: UIView) {
+        // 已经挂在这个宿主上（同一个实例重复 show）：幂等返回。
+        // 后面的状态推进与 presentDialog 的状态守卫自会挡住重复动作
+        guard view.superview !== hostView else { return }
+
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.clipsToBounds = true
+        hostView.addSubview(view)
+
+        inlineConstraints = [
+            view.topAnchor.constraint(equalTo: hostView.topAnchor),
+            view.leadingAnchor.constraint(equalTo: hostView.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: hostView.trailingAnchor),
+            view.bottomAnchor.constraint(equalTo: hostView.bottomAnchor)
+        ]
+        NSLayoutConstraint.activate(inlineConstraints)
+
+        // 能挂进某个控制器就挂：拿不到也不影响展示，只是少了上面第 2 步的那些收益
+        if let parent = hostView.nearestViewController {
+            parent.addChild(self)
+            didMove(toParent: parent)
+        }
+
+        // 先求解一次布局：紧接着要发起的入场动画会读容器尺寸来算滑动距离，
+        // 此刻拿到的必须是宿主视图的真实尺寸
+        hostView.layoutIfNeeded()
+
+        #if DEBUG
+        if view.window == nil {
+            print("CooDialog: inline 弹窗挂载的视图尚未进入窗口层级，动画过程不可见（宿主视图可能还没上屏）")
+        } else if view.bounds.isEmpty {
+            print("CooDialog: inline 弹窗挂载的视图尺寸为 0，容器会塌缩、滑动距离退化为兜底值")
+        } else if isContainerOverflowingCanvas {
+            // 内容比画布大是常见误用：横向会被位置约束压回画布内，纵向则直接溢出、超出部分被裁掉
+            print("CooDialog: inline 弹窗的容器超出了画布，超出部分会被裁剪（容器 \(containerView.frame)，画布 \(view.bounds)）；可用 .fixed(width:height:)、updateContainerSize(_:_:) 限制它，或让内容可压缩")
+        }
+        #endif
+    }
+
+    /// 从宿主视图上摘下来（inline 模式的收尾动作；present 路径没有这一步）。
+    ///
+    /// 三步缺一不可：
+    /// - 清约束账本：与约束管理器的做法一致，不留悬空引用（不依赖"移除视图会自动清约束"）
+    /// - 摘掉父子关系：否则宿主控制器会一直把已关闭的弹窗留在 children 里，
+    ///   既拖着它的视图层级不放，响应链也仍然会命中它
+    /// - 移除视图：弹窗在这块画布上"消失"的最终动作
+    ///
+    /// `willMove(toParent: nil)` 是 UIKit 要求的拆链顺序（先宣告、再摘视图、后完成）；
+    /// 没有父子关系时，这两个调用都是安全的空操作。
+    private func detachInline() {
+        NSLayoutConstraint.deactivate(inlineConstraints)
+        inlineConstraints = []
+
+        willMove(toParent: nil)
+        view.removeFromSuperview()
+        removeFromParent()
+    }
+
+    /// inline 自检：容器的**未变换**位置是否超出了画布（DEBUG 提示用）。
+    ///
+    /// 为什么要临时把 transform 归零再量：滑动类动画在预置阶段就把容器摆到了画布之外
+    /// （那是动画起点，不是布局越界），直接读 frame 会把它误判成"内容放不下"。
+    /// 归零 → 测量 → 恢复在同一个同步块内完成，且调用点在入场动画发起之前，不会留下中间态。
+    private var isContainerOverflowingCanvas: Bool {
+        let canvas = view.bounds
+        guard !canvas.isEmpty else { return false }
+
+        let savedTransform = containerView.transform
+        containerView.transform = .identity
+        let containerFrame = containerView.frame
+        containerView.transform = savedTransform
+
+        return !canvas.contains(containerFrame)
+    }
+
+    /// 把弹窗从它的载体上摘下来（三条路径的收尾终点）。
     ///
     /// 为什么单独成一个方法：`dismiss(animated:completion:)` 已被本类覆写为完整的关闭流程，
     /// 而这里的调用点在动画的逃逸闭包里——闭包内不能写 `super`，若写成 `self.dismiss(...)`
     /// 会再次进入覆写实现、无限递归。以实例方法的身份转发到 `super` 才能绕开覆写。
     ///
-    /// - Note: 只摘 present 关系，不负责回收 window——顺序上必须先做这一步，
+    /// 两条 present 路径摘的是呈现关系；inline 路径没有呈现关系可摘，摘的是视图挂载
+    ///（见 detachInline()）。两者都是"让弹窗离开它的载体"，因此共用同一个收尾出口。
+    ///
+    /// - Note: 只摘载体，不负责回收 window——顺序上必须先做这一步，
     ///   环（window → 宿主 → 弹窗 → windowManager → window）才是从里到外解开的。
     private func dismissFromHost() {
+        if case .inline = config.presentationMode {
+            detachInline()
+            return
+        }
         super.dismiss(animated: false)
     }
 

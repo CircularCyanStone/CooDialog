@@ -2,6 +2,38 @@
 
 本文件记录 CooDialog 的对外变更，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.0.3] - 2026-10-13
+
+### 新增
+
+- **第三种展示载体 `.inline(UIView)`**：把弹窗挂到指定视图上，全程不产生 `present` 关系。
+  传入的视图就是弹窗的"画布"——遮罩铺满它，容器的定位与滑动动画以它为基准，超出它的部分会被裁剪。
+
+  ```swift
+  CooDialog.center()
+      .inline(in: previewArea)          // 等价于 .presentationMode(.inline(previewArea))
+      .contentView(makeCard())
+      .show()
+  ```
+
+  适合"弹窗只属于页面里的某一块区域"（局部预览、卡片内弹层），以及手上只有视图、
+  拿不到合适控制器的时机。挂载时会尝试挂进宿主所在的控制器（`addChild`），
+  因此 `closeCooDialog()` / `isInCooDialog` 的响应链查找与外观回调照常生效。
+
+- 动画、约束、手势、动态改尺寸、四个动画回调、`isPresenting` 在 `.inline` 下与另外两种载体
+  完全一致：三者只在"由谁承载弹窗的视图"上不同，上屏之后共用同一条链路。
+  唯一按载体取值的配置是内容尺寸上限——`.inline` 下以宿主视图的 bounds 为准（而不是屏幕）。
+
+### 破坏性变更（对宿主）
+
+- `CooDialogPresentationMode` 新增 `.inline(UIView)` case。对宿主**源码兼容**，
+  但若宿主对该枚举写了穷尽 `switch`（没有 `default`），需要补上这个分支才能编译通过。
+
+### 备注
+
+- `.inline` 的遮罩只覆盖传入的那块视图，不会盖住整屏；弹窗也不会随页面生命周期自动收尾，
+  仍然需要显式 `dismiss()`。
+
 ## [0.0.2] - 2026-10-13
 
 **破坏性变更**：库内所有 `SKDialog` 前缀统一改为 `CooDialog`，旧名不保留兼容别名，

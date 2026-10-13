@@ -252,12 +252,21 @@ extension CooDialogContainerSizeManager {
 
     // MARK: - Content Size Calculation
 
-    /// 计算尺寸上限时使用的"可用屏幕区域"。
+    /// 计算尺寸上限时使用的"可用区域"。
     ///
-    /// 优先取弹窗所在 window 的场景坐标空间：iPad 分屏 / Slide Over / 多窗口下，
-    /// 这才是真实可用区域，而 `UIScreen.main.bounds` 会返回整屏尺寸（偏大）。
-    /// 弹窗尚未上屏（取不到 scene）时回退到 `UIScreen.main.bounds`，与历史行为一致。
+    /// 按载体的不同取不同的基准，三档优先级：
+    /// 1. `.inline`：宿主视图的 bounds——inline 模式的"屏幕"就是那块画布，
+    ///    用它才能让"按内容反算尺寸"的上限与弹窗实际能占的空间一致
+    ///    （宿主视图往往只是页面里的一小块，拿整屏尺寸会算出撑破画布的值）
+    /// 2. 其余模式：弹窗所在 window 的场景坐标空间。iPad 分屏 / Slide Over / 多窗口下，
+    ///    这才是真实可用区域，而 `UIScreen.main.bounds` 会返回整屏尺寸（偏大）
+    /// 3. 兜底：弹窗尚未上屏（取不到 scene）时回退到 `UIScreen.main.bounds`，与历史行为一致
+    ///    （inline 的宿主视图尺寸为 0 时也走这一档，避免算出 0 上限）
     private var availableScreenBounds: CGRect {
+        if let viewController, case .inline(let hostView) = viewController.config.presentationMode,
+           !hostView.bounds.isEmpty {
+            return hostView.bounds
+        }
         if let scene = viewController?.view.window?.windowScene {
             return scene.coordinateSpace.bounds
         }
