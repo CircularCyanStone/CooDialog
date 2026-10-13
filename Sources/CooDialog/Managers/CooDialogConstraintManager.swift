@@ -1,5 +1,5 @@
 //
-//  SKDialogConstraintManager.swift
+//  CooDialogConstraintManager.swift
 //  SiKu
 //
 //  Created by SOLO Coding on 2024/01/15.
@@ -8,7 +8,7 @@
 
 /**
  * 文件功能描述：
- * SKDialog弹窗组件的约束管理器，专门负责处理弹窗容器视图的约束设置、更新和管理。
+ * CooDialog弹窗组件的约束管理器，专门负责处理弹窗容器视图的约束设置、更新和管理。
  * 该管理器将约束相关的复杂逻辑从主控制器中分离出来，提高代码的可维护性和可读性。
  *
  * 类型功能描述：
@@ -26,28 +26,28 @@
  *
  * 运行时的能力边界（重要，这是本类对外行为的定义）：
  * 位置与尺寸模式都在**展示前**确定。运行时只支持"改尺寸数值"——
- * 即 setContainerWidth / setContainerHeight（由 SKDialogContainerSizeManager 驱动），
+ * 即 setContainerWidth / setContainerHeight（由 CooDialogContainerSizeManager 驱动），
  * 它改写已有约束的 constant，或在缺少该方向约束时补建一条。
  * 不支持运行时整体切换位置或尺寸语义：需要另一种形态时请新建弹窗
- * （SKDialogConfig 在库外只读，重建的成本也很低）。
+ * （CooDialogConfig 在库外只读，重建的成本也很低）。
  *
- * 与 SKDialogContainerSizeManager 的分工：
+ * 与 CooDialogContainerSizeManager 的分工：
  * 后者负责计算内容尺寸、动画过渡与 config 回写，不直接接触 NSLayoutConstraint 对象；
  * 本管理器是约束的唯一持有者与唯一修改入口，二者的依赖方向单向（尺寸管理器 → 本管理器）。
  */
 
 import UIKit
 
-/// SKDialog约束管理器
+/// CooDialog约束管理器
 /// 负责管理弹窗容器视图的约束设置和更新
 @MainActor
-class SKDialogConstraintManager {
+class CooDialogConstraintManager {
 
     // MARK: - Properties
 
     /// 弱引用主控制器，避免循环引用
     /// （控制器持有本管理器，若这里强引用回去就构成引用环）
-    private weak var viewController: SKDialogViewController?
+    private weak var viewController: CooDialogViewController?
 
     /// 遮罩约束账本：backgroundView 与控制器 view 的四边等值约束
     private var backgroundConstraints: [NSLayoutConstraint] = []
@@ -67,7 +67,7 @@ class SKDialogConstraintManager {
 
     /// 初始化约束管理器
     /// - Parameter viewController: 关联的弹窗控制器
-    init(viewController: SKDialogViewController) {
+    init(viewController: CooDialogViewController) {
         self.viewController = viewController
     }
 
@@ -75,7 +75,7 @@ class SKDialogConstraintManager {
 
     /// 建立整套约束（遮罩铺满 + 容器位置 + 容器尺寸），并一次性激活。
     ///
-    /// 调用时机：SKDialogViewController.viewDidLoad()，紧跟视图层级搭建之后。
+    /// 调用时机：CooDialogViewController.viewDidLoad()，紧跟视图层级搭建之后。
     /// 之所以"先清除再建立"：本方法可能在重复配置后再次调用，
     /// 不清除会产生两组锚点不同的约束，直接导致布局冲突与不可预期的位置。
     func setupContainerConstraints() {
@@ -102,7 +102,7 @@ class SKDialogConstraintManager {
     /// 补建约束的优先级按尺寸模式分档（见 sizeConstraintPriority）：自适应模式是"临时钉住"，
     /// 内容变大时仍能撑开它；已明确固定的方向则压过内容诉求。
     ///
-    /// 调用方：SKDialogContainerSizeManager（宿主改尺寸时按需驱动）。
+    /// 调用方：CooDialogContainerSizeManager（宿主改尺寸时按需驱动）。
     func setContainerWidth(_ width: CGFloat) {
         guard let viewController = viewController else { return }
 
@@ -137,7 +137,7 @@ class SKDialogConstraintManager {
 
 // MARK: - Private
 
-extension SKDialogConstraintManager {
+extension CooDialogConstraintManager {
 
     /// 补建尺寸约束时使用的优先级。
     ///
@@ -153,7 +153,7 @@ extension SKDialogConstraintManager {
     /// 并不确定（会打印冲突日志），行为不可预测；500 明确落在
     /// 「内容抗压缩 750」与「内容压缩（hugging）250」之间，于是行为是确定的：
     /// 内容更大 → 撑开容器（自适应语义成立）；内容更小 → 保持宿主设定的值（尊重显式调用）。
-    private func sizeConstraintPriority(for sizeMode: SKDialogSizeMode) -> UILayoutPriority {
+    private func sizeConstraintPriority(for sizeMode: CooDialogSizeMode) -> UILayoutPriority {
         switch sizeMode {
         case .contentAdaptive:
             return UILayoutPriority(500)
@@ -207,7 +207,7 @@ extension SKDialogConstraintManager {
 
     /// 生成位置约束。位置决定垂直锚点，水平方向一律居中并受 margins 保护。
     /// - Parameter position: 弹窗位置
-    private func addPositionConstraints(for position: SKDialogPosition) {
+    private func addPositionConstraints(for position: CooDialogPosition) {
         guard let viewController = viewController else { return }
 
         let config = viewController.config
@@ -279,7 +279,7 @@ extension SKDialogConstraintManager {
     /// `widthConstraint` / `heightConstraint` 上（与 `containerConstraints` 账本同源）。
     /// 这两个引用是"改 constant 不重建约束"的抓手——有了它们，
     /// 运行时的尺寸变化（setContainerWidth / setContainerHeight）才能走轻量路径并动画过渡。
-    private func addSizeConstraints(for sizeMode: SKDialogSizeMode) {
+    private func addSizeConstraints(for sizeMode: CooDialogSizeMode) {
         guard let viewController = viewController else { return }
 
         let containerView = viewController.containerView
@@ -321,7 +321,7 @@ extension SKDialogConstraintManager {
 // MARK: - Debug & Testing
 
 /// 调试 / 测试用的自检入口，不参与生产路径。
-extension SKDialogConstraintManager {
+extension CooDialogConstraintManager {
 
     /// 当前处于激活状态的约束（用于调试布局问题）
     var activeConstraints: [NSLayoutConstraint] {

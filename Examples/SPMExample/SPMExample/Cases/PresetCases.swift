@@ -14,7 +14,7 @@ extension ViewController {
     enum PresetCases {
         static let all: [Case] = [
             Case(title: "底部面板",
-                 detail: "预设 SKDialog.bottom()：列表滚动时面板不动，滚到顶部继续下拉才拖走关闭",
+                 detail: "预设 CooDialog.bottom()：列表滚动时面板不动，滚到顶部继续下拉才拖走关闭",
                  identifier: "case.preset.bottomPanel",
                  action: #selector(ViewController.showBottomPanel)),
             Case(title: "居中对话框（固定宽 300）",
@@ -22,7 +22,7 @@ extension ViewController {
                  identifier: "case.preset.centerDialog",
                  action: #selector(ViewController.showCenterDialog)),
             Case(title: "顶部提示条（2 秒后自动关）",
-                 detail: "预设 SKDialog.top() + extendToSafeArea(false)：以安全区为基准，避开刘海",
+                 detail: "预设 CooDialog.top() + extendToSafeArea(false)：以安全区为基准，避开刘海",
                  identifier: "case.preset.topToast",
                  action: #selector(ViewController.showTopToast)),
             Case(title: "半屏面板（固定高 400）",
@@ -52,7 +52,7 @@ extension ViewController {
             message: "列表滚到顶部之前，下拉只用于滚动；滚到顶再拉才驱动面板关闭（库内置的让位策略）"
         )
 
-        SKDialog.bottom()
+        CooDialog.bottom()
             .contentView(panel)
             .backgroundColor(.secondarySystemBackground)
             .shadow(show: true, radius: 12, opacity: 0.12)
@@ -67,9 +67,9 @@ extension ViewController {
             title: "居中对话框",
             message: "宽度固定 300pt，高度由内容撑开。点“确认”后关闭，并打印关闭完成回调。"
         )
-        card.addButton("确认") { [weak card] in card?.closeSKDialog() }
+        card.addButton("确认") { [weak card] in card?.closeCooDialog() }
 
-        let dialog = SKDialog.center()
+        let dialog = CooDialog.center()
             .contentView(card)
             .size(width: 300)
             .cornerRadius(16)
@@ -87,7 +87,7 @@ extension ViewController {
 
     @objc func showTopToast() {
         let toast = ToastView(text: "已保存", subtitle: "extendToSafeArea(false)：整条在安全区内")
-        let dialog = SKDialog.top()
+        let dialog = CooDialog.top()
             .contentView(toast)
             .cornerRadius(12)
             .extendToSafeArea(false)
@@ -108,7 +108,7 @@ extension ViewController {
             rowCount: 20
         )
 
-        SKDialog.bottom()
+        CooDialog.bottom()
             .contentView(panel)
             .fixedHeight(400)
             .backgroundColor(.secondarySystemBackground)
@@ -128,9 +128,9 @@ extension ViewController {
             反过来，如果容器比内容大，内容会被拉伸（四边贴合），也不会保持自己的固有尺寸。
             """
         )
-        card.addButton("关闭") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭") { [weak card] in card?.closeCooDialog() }
 
-        SKDialog.center()
+        CooDialog.center()
             .contentView(card)
             .size(width: 280, height: 320)
             .cornerRadius(14)
@@ -145,9 +145,9 @@ extension ViewController {
             title: "完全自适应",
             message: "宽度由内容决定"
         )
-        card.addButton("关闭") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭") { [weak card] in card?.closeCooDialog() }
 
-        SKDialog.center()
+        CooDialog.center()
             .contentView(card)
             .contentAdaptive()
             .cornerRadius(14)
@@ -161,7 +161,7 @@ extension ViewController {
         let log = self.log
 
         let flush = ToastView(text: "extendToSafeArea: true", subtitle: "贴屏幕物理边缘：内容顶进刘海区域")
-        let flushDialog = SKDialog.top()
+        let flushDialog = CooDialog.top()
             .contentView(flush)
             .backgroundColor(.systemRed.withAlphaComponent(0.9))
             .extendToSafeArea(true)
@@ -170,7 +170,7 @@ extension ViewController {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             let safe = ToastView(text: "extendToSafeArea: false", subtitle: "以安全区为基准：整条移到刘海下方")
-            let safeDialog = SKDialog.top()
+            let safeDialog = CooDialog.top()
                 .contentView(safe)
                 .backgroundColor(.systemGreen.withAlphaComponent(0.9))
                 .extendToSafeArea(false)

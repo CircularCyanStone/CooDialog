@@ -59,8 +59,8 @@ extension ViewController {
     // MARK: - 公共构造
 
     /// V 组共用的宿主模式配置：弹窗由当前页面 present
-    func makeHostedConfig(width: CGFloat) -> SKDialogConfig {
-        SKDialogConfig.centerDialog(width: width, presentationMode: .viewController(self))
+    func makeHostedConfig(width: CGFloat) -> CooDialogConfig {
+        CooDialogConfig.centerDialog(width: width, presentationMode: .viewController(self))
     }
 
     // MARK: - V1 基础
@@ -70,9 +70,9 @@ extension ViewController {
             title: "宿主模式弹窗",
             message: "这个弹窗由当前页面 present：关掉它之后，本页重新成为前台（presentedViewController 回到 nil）。"
         )
-        card.addButton("关闭") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭") { [weak card] in card?.closeCooDialog() }
 
-        SKDialog.center()
+        CooDialog.center()
             .contentView(card)
             .size(width: 300)
             .presentationMode(.viewController(self))
@@ -115,7 +115,7 @@ extension ViewController {
         present(blocker, animated: false) { [weak self] in
             guard let self else { return }
 
-            let dialog = SKDialogViewController(config: self.makeHostedConfig(width: 300))
+            let dialog = CooDialogViewController(config: self.makeHostedConfig(width: 300))
             dialog.addContentView(MessageCardView(
                 title: "不该出现",
                 message: "宿主此刻已经 present 了别的控制器，这个弹窗展示不了——`show(completion:)` 会立刻回调，稍后回到案例页可在轨迹里看到这一行。"
@@ -137,7 +137,7 @@ extension ViewController {
         // 只创建、不展示、不 addChild：这个宿主的视图永远不会进入 window 层级
         let offscreenHost = UIViewController()
 
-        let dialog = SKDialogViewController(config: SKDialogConfig.centerDialog(
+        let dialog = CooDialogViewController(config: CooDialogConfig.centerDialog(
             width: 300,
             presentationMode: .viewController(offscreenHost)
         ))
@@ -164,7 +164,7 @@ extension ViewController {
             message: "1 秒后自动调用 dismiss(animated: true)：它被库覆写成完整关闭流程，因此回调照常触发（若是 UIKit 的原生实现，这些回调会全部丢失）。"
         )
 
-        let dialog = SKDialogViewController(config: makeHostedConfig(width: 300))
+        let dialog = CooDialogViewController(config: makeHostedConfig(width: 300))
         dialog.addContentView(card)
         dialog.logging("V5 dismiss(animated:)", into: log)
         dialog.show { [weak self, weak dialog] in
@@ -186,7 +186,7 @@ extension ViewController {
             rowCount: 10
         )
 
-        let dialog = SKDialog.bottom()
+        let dialog = CooDialog.bottom()
             .contentView(panel)
             .backgroundColor(.secondarySystemBackground)
             .presentationMode(.viewController(self))
@@ -209,7 +209,7 @@ extension ViewController {
             expanded: "展开后 updateContainerHeight(340)：宿主模式与 window 模式的尺寸行为完全一致"
         )
 
-        let dialog = SKDialog.center()
+        let dialog = CooDialog.center()
             .contentView(card)
             .size(width: 300)
             .presentationMode(.viewController(self))
@@ -222,7 +222,7 @@ extension ViewController {
             dialog.updateContainerHeight(height)
             self?.log.record("V7 宿主模式改尺寸", "updateContainerHeight(\(Int(height))) → sizeMode \(dialog.config.sizeMode.shortDescription)")
         }
-        card.addButton("关闭") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭") { [weak card] in card?.closeCooDialog() }
     }
 
     // MARK: - V8 宿主模式下的回调链
@@ -233,7 +233,7 @@ extension ViewController {
             message: "关闭时依次触发：两条 addCompletionHandler，最后是 dismiss 的一次性回调。"
         )
 
-        let dialog = SKDialogViewController(config: makeHostedConfig(width: 300))
+        let dialog = CooDialogViewController(config: makeHostedConfig(width: 300))
         dialog.addContentView(card)
         dialog.logging("V8 宿主回调链", into: log)
         dialog.addCompletionHandler { [weak self] in
@@ -255,7 +255,7 @@ extension ViewController {
     @objc func showHostedNestedRejection() {
         let log = self.log
 
-        let first = SKDialogViewController(config: makeHostedConfig(width: 300))
+        let first = CooDialogViewController(config: makeHostedConfig(width: 300))
         let card = MessageCardView(
             title: "第一个宿主弹窗",
             message: "点下面的按钮，试着在同一个宿主上再弹一个——那次会命中“宿主已 present 其它控制器”这条前置条件，因而不展示。"
@@ -263,7 +263,7 @@ extension ViewController {
         card.addButton("再弹一个（预期失败）") { [weak self] in
             guard let self else { return }
 
-            let second = SKDialogViewController(config: self.makeHostedConfig(width: 280))
+            let second = CooDialogViewController(config: self.makeHostedConfig(width: 280))
             second.addContentView(MessageCardView(
                 title: "第二个（不该出现）",
                 message: "如果看到我，说明前置条件检查失效了。"

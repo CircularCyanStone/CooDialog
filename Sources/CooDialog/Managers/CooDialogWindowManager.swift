@@ -1,5 +1,5 @@
 //
-//  SKDialogWindowManager.swift
+//  CooDialogWindowManager.swift
 //  SiKu
 //
 //  Created by SOLO Coding on 2024/01/15.
@@ -8,7 +8,7 @@
 
 /**
  * 文件功能描述：
- * SKDialog弹窗组件的Window模式管理器：负责自建 UIWindow 的创建、配置、上屏与回收。
+ * CooDialog弹窗组件的Window模式管理器：负责自建 UIWindow 的创建、配置、上屏与回收。
  *
  * 类型功能描述：
  * - Window创建：创建并配置自定义Window（层级、透明背景、跟随场景尺寸）
@@ -23,7 +23,7 @@
  *
  * 与展示流程的边界（本类不管动画，也不管弹窗的呈现关系）：
  * 弹窗由 window 里的宿主控制器 present（见 makeHostForPresentation()），
- * present / dismiss 与入场退场动画全部归 SKDialogViewController 编排。
+ * present / dismiss 与入场退场动画全部归 CooDialogViewController 编排。
  * 本类只负责两件事：**准备一个落在最上层的宿主**、**用完把它收干净**。
  * 这样 `.window` 与 `.viewController` 两种模式共享同一条展示链路，
  * 差异只剩"那个宿主是谁"——不再需要各自一套上屏与收尾。
@@ -41,10 +41,10 @@
 
 import UIKit
 
-/// SKDialog Window模式管理器
+/// CooDialog Window模式管理器
 /// 负责处理弹窗的Window模式显示逻辑，包括自定义Window的创建、显示、隐藏等功能
 @MainActor
-class SKDialogWindowManager {
+class CooDialogWindowManager {
 
     // MARK: - Properties
 
@@ -133,7 +133,7 @@ class SKDialogWindowManager {
 
 // MARK: - Private
 
-extension SKDialogWindowManager {
+extension CooDialogWindowManager {
 
     /// 创建自定义Window
     /// - Parameter windowLevel: 自建 window 的层级
@@ -218,7 +218,7 @@ extension SKDialogWindowManager {
 // MARK: - Debug & Testing
 
 /// 调试 / 测试用的状态查询与强制清理入口，不参与生产路径。
-extension SKDialogWindowManager {
+extension CooDialogWindowManager {
 
     /// 自建 window 当前是否已就位（即"本管理器认为弹窗可以显示"）
     var isVisible: Bool {

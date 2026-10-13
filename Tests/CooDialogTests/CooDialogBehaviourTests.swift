@@ -13,17 +13,17 @@ import UIKit
 /// 5. 配置改为值类型（struct）后，控制器持有的那份仍必须被动画读到，不得停留在构造时的快照
 /// 6. 同一个构建器展示两次，两个弹窗的配置必须互相独立（值语义，不再共享同一引用）
 /// 7. 动态改尺寸后 sizeMode 的回写仍须对读取 config 的一方可见
-/// 8. `show()` 作为展示入口：按配置分发、显示完成回调必被调用，且不经过 SKDialog 也能直接使用
+/// 8. `show()` 作为展示入口：按配置分发、显示完成回调必被调用，且不经过 CooDialog 也能直接使用
 /// 9. 自适应模式下动态改尺寸：补建的约束会登记进账本（引用与账本同源），后续尺寸变化只改 constant
 /// 10. 尺寸写法与 sizeMode 一一对应：单向固定 / 全自适应都映射到专属 case，不再出现 `.fixed` 的 nil 组合
 @MainActor
-struct SKDialogBehaviourTests {
+struct CooDialogBehaviourTests {
 
     /// 构造一个带内容的弹窗控制器：内容用固定尺寸约束，避免出现 0 尺寸容器。
     private func makeDialog(
-        configure: (inout SKDialogConfig) -> Void = { _ in }
-    ) -> (SKDialogViewController, UIView) {
-        var config = SKDialogConfig()
+        configure: (inout CooDialogConfig) -> Void = { _ in }
+    ) -> (CooDialogViewController, UIView) {
+        var config = CooDialogConfig()
         config.animationDuration = 0.05          // 缩短动画时长，让测试等待更短
         config.springDamping = 1                // 无回弹，便于断言最终状态
         configure(&config)
@@ -38,7 +38,7 @@ struct SKDialogBehaviourTests {
         contentHeight.priority = .defaultLow
         NSLayoutConstraint.activate([contentWidth, contentHeight])
 
-        let dialog = SKDialogViewController(config: config)
+        let dialog = CooDialogViewController(config: config)
         dialog.addContentView(content)
         dialog.loadViewIfNeeded()               // 触发 viewDidLoad：建视图、约束、手势、预置动画状态
         return (dialog, content)
@@ -189,11 +189,11 @@ struct SKDialogBehaviourTests {
     @Test("控制器构造后修改 config，动画实现读到的应是最新值（不得是构造时的快照）")
     func configChangeAfterInitReachesAnimation() {
         let recorder = ConfigRecordingAnimation()
-        var config = SKDialogConfig()
+        var config = CooDialogConfig()
         config.animationDuration = 0.05
         config.animationType = .custom(recorder)
 
-        let dialog = SKDialogViewController(config: config)
+        let dialog = CooDialogViewController(config: config)
         dialog.loadViewIfNeeded()
 
         // 控制器已构造完成后再改配置：AnimationManager 若持有快照，这里就会静默失效
@@ -205,7 +205,7 @@ struct SKDialogBehaviourTests {
 
     @Test("同一个构建器展示两次，两个弹窗的配置互相独立")
     func builderReuseKeepsConfigsIndependent() {
-        let builder = SKDialog.center().cornerRadius(20)
+        let builder = CooDialog.center().cornerRadius(20)
         let first = builder.show()
         builder.cornerRadius(40)
         let second = builder.show()
@@ -238,8 +238,8 @@ struct SKDialogBehaviourTests {
 
     @Test("构建器的尺寸写法映射到明确的 sizeMode（不再出现 .fixed 的 nil 组合）")
     func builderSizeMethodsMapToExplicitModes() {
-        // 每种写法对应哪种模式（映射规则定义在 SKDialogSizeMode 的便利初始化器里，全库只有那一处）
-        let cases: [(name: String, expected: SKDialogSizeMode, build: (SKDialog) -> SKDialog)] = [
+        // 每种写法对应哪种模式（映射规则定义在 CooDialogSizeMode 的便利初始化器里，全库只有那一处）
+        let cases: [(name: String, expected: CooDialogSizeMode, build: (CooDialog) -> CooDialog)] = [
             ("size()", .contentAdaptive, { $0.size() }),
             ("size(width:)", .fixedWidth(300), { $0.size(width: 300) }),
             ("size(height:)", .fixedHeight(200), { $0.size(height: 200) }),
@@ -250,39 +250,39 @@ struct SKDialogBehaviourTests {
         ]
 
         for item in cases {
-            let dialog = item.build(SKDialog.center()).show()
+            let dialog = item.build(CooDialog.center()).show()
             #expect(dialog.config.sizeMode == item.expected, "\(item.name) 应映射为 \(item.expected)")
             dialog.dismiss()
         }
     }
 
-    @Test("SKDialogConfig 的工厂方法与构建器走同一套尺寸映射")
-    func configFactoriesMapToExplicitModes() {        #expect(SKDialogConfig.centerDialog().sizeMode == .contentAdaptive)
-        #expect(SKDialogConfig.centerDialog(width: 300).sizeMode == .fixedWidth(300))
-        #expect(SKDialogConfig.centerDialog(height: 200).sizeMode == .fixedHeight(200))
-        #expect(SKDialogConfig.centerDialog(width: 300, height: 200).sizeMode == .fixed(width: 300, height: 200))
+    @Test("CooDialogConfig 的工厂方法与构建器走同一套尺寸映射")
+    func configFactoriesMapToExplicitModes() {        #expect(CooDialogConfig.centerDialog().sizeMode == .contentAdaptive)
+        #expect(CooDialogConfig.centerDialog(width: 300).sizeMode == .fixedWidth(300))
+        #expect(CooDialogConfig.centerDialog(height: 200).sizeMode == .fixedHeight(200))
+        #expect(CooDialogConfig.centerDialog(width: 300, height: 200).sizeMode == .fixed(width: 300, height: 200))
 
-        #expect(SKDialogConfig.bottomSheet().sizeMode == .contentAdaptive)
-        #expect(SKDialogConfig.bottomSheet(height: 200).sizeMode == .fixedHeight(200))
-        #expect(SKDialogConfig.topSheet().sizeMode == .contentAdaptive)
-        #expect(SKDialogConfig.topSheet(height: 200).sizeMode == .fixedHeight(200))
+        #expect(CooDialogConfig.bottomSheet().sizeMode == .contentAdaptive)
+        #expect(CooDialogConfig.bottomSheet(height: 200).sizeMode == .fixedHeight(200))
+        #expect(CooDialogConfig.topSheet().sizeMode == .contentAdaptive)
+        #expect(CooDialogConfig.topSheet(height: 200).sizeMode == .fixedHeight(200))
     }
 
     @Test("预设与配置工厂的圆角一致：同一个面板不该有两种默认观感")
     func presetsMatchConfigFactoryCornerRadius() {
         // 底部：两者都应是 16（历史上分别是 12 与 16）
-        let bottom = SKDialog.bottom().show()
+        let bottom = CooDialog.bottom().show()
         #expect(bottom.config.cornerRadius == 16)
-        #expect(bottom.config.cornerRadius == SKDialogConfig.bottomSheet().cornerRadius)
+        #expect(bottom.config.cornerRadius == CooDialogConfig.bottomSheet().cornerRadius)
         bottom.dismiss()
 
         // 居中与顶部同样对齐（这两条此前已一致，一并钉住以防回退）
-        let center = SKDialog.center().show()
-        #expect(center.config.cornerRadius == SKDialogConfig.centerDialog().cornerRadius)
+        let center = CooDialog.center().show()
+        #expect(center.config.cornerRadius == CooDialogConfig.centerDialog().cornerRadius)
         center.dismiss()
 
-        let top = SKDialog.top().show()
-        #expect(top.config.cornerRadius == SKDialogConfig.topSheet().cornerRadius)
+        let top = CooDialog.top().show()
+        #expect(top.config.cornerRadius == CooDialogConfig.topSheet().cornerRadius)
         top.dismiss()
     }
 
@@ -306,7 +306,7 @@ struct SKDialogBehaviourTests {
         #expect(dialog.isSizeConstraintsValid)
     }
 
-    // MARK: - 8. 直接使用 SKDialogViewController（不经过 SKDialog）
+    // MARK: - 8. 直接使用 CooDialogViewController（不经过 CooDialog）
 
     @Test("show(completion:) 的显示完成回调必被调用；未能上屏时不虚报“显示完成”")
     func showInvokesCompletionWithoutFakingPresentation() async throws {
@@ -336,9 +336,9 @@ struct SKDialogBehaviourTests {
         #expect(abs(dialog.containerView.transform.a - 0.8) < 0.001)
     }
 
-    @Test("继承 SKDialogViewController 后可直接使用，无需经过 SKDialog")
+    @Test("继承 CooDialogViewController 后可直接使用，无需经过 CooDialog")
     func subclassedDialogCanBeUsedDirectly() async throws {
-        var config = SKDialogConfig()
+        var config = CooDialogConfig()
         config.animationDuration = 0.05
         config.springDamping = 1
         config.position = .bottom
@@ -375,11 +375,11 @@ struct SKDialogBehaviourTests {
     }
 }
 
-/// 用于验证"继承 SKDialogViewController 直接使用"这条路径：不经过 SKDialog 构建器。
+/// 用于验证"继承 CooDialogViewController 直接使用"这条路径：不经过 CooDialog 构建器。
 /// 覆写的是本类承诺给宿主的覆写面——open 的生命周期方法；
 /// 展示入口 `show()` 刻意非 open（只可调用、不可覆写），因此不在这里拦截。
 @MainActor
-final class SubclassedDialog: SKDialogViewController {
+final class SubclassedDialog: CooDialogViewController {
 
     /// viewDidLoad 被调用的次数：证明子类覆写的生命周期方法确实参与展示流程
     private(set) var viewDidLoadCount = 0
@@ -393,7 +393,7 @@ final class SubclassedDialog: SKDialogViewController {
 /// 记录型动画实现：只把"本次动画收到的配置"记下来，不做任何视觉变化。
 /// 用于验证「控制器 → 动画实现」这条链路上读到的是最新配置，而不是构造时的快照。
 @MainActor
-final class ConfigRecordingAnimation: SKDialogAnimationProtocol {
+final class ConfigRecordingAnimation: CooDialogAnimationProtocol {
 
     private(set) var presentDuration: TimeInterval = -1
     private(set) var dismissDuration: TimeInterval = -1
@@ -401,7 +401,7 @@ final class ConfigRecordingAnimation: SKDialogAnimationProtocol {
     func performPresentAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         presentDuration = config.animationDuration
@@ -411,7 +411,7 @@ final class ConfigRecordingAnimation: SKDialogAnimationProtocol {
     func performDismissAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         dismissDuration = config.animationDuration

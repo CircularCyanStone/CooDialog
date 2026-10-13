@@ -2,7 +2,7 @@ import Testing
 import UIKit
 @testable import CooDialog
 
-/// 展示状态（`SKDialogViewController`）与手势复位（`SKDialogGestureHandler`）的回归测试。
+/// 展示状态（`CooDialogViewController`）与手势复位（`CooDialogGestureHandler`）的回归测试。
 ///
 /// 覆盖的是两条"配置/状态曾经被绕过"的缺陷，以及由它们带出的对外契约：
 /// 1. `show()` 成功之后、`viewDidAppear` 之前调用 `dismiss()` 必须真正收尾——
@@ -19,15 +19,15 @@ import UIKit
 ///   本文件因此只断言库自身的收尾动作（状态推进 + 各回调），那部分与系统转场无关；
 ///   转场相关的行为需跑 `Examples/` 下的示例工程验证。
 @MainActor
-struct SKDialogPresentationStateTests {
+struct CooDialogPresentationStateTests {
 
     // MARK: - 公共构造
 
     /// 构造一个已装配内容的弹窗控制器（不展示）。
     private func makeDialog(
-        configure: (inout SKDialogConfig) -> Void = { _ in }
-    ) -> SKDialogViewController {
-        var config = SKDialogConfig()
+        configure: (inout CooDialogConfig) -> Void = { _ in }
+    ) -> CooDialogViewController {
+        var config = CooDialogConfig()
         config.animationDuration = 0.05          // 缩短动画时长，让测试等待更短
         config.springDamping = 1                // 无回弹，便于断言最终状态
         configure(&config)
@@ -40,7 +40,7 @@ struct SKDialogPresentationStateTests {
         contentHeight.priority = .defaultLow
         NSLayoutConstraint.activate([contentWidth, contentHeight])
 
-        let dialog = SKDialogViewController(config: config)
+        let dialog = CooDialogViewController(config: config)
         dialog.addContentView(content)
         dialog.loadViewIfNeeded()
         dialog.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -64,11 +64,11 @@ struct SKDialogPresentationStateTests {
     }
 
     /// 从容器上的拖拽手势反查手势处理器（delegate 即处理器自身）
-    private func panHandler(of dialog: SKDialogViewController) -> SKDialogGestureHandler? {
+    private func panHandler(of dialog: CooDialogViewController) -> CooDialogGestureHandler? {
         dialog.containerView.gestureRecognizers?
             .compactMap { $0 as? UIPanGestureRecognizer }
             .first?
-            .delegate as? SKDialogGestureHandler
+            .delegate as? CooDialogGestureHandler
     }
 
     // MARK: - 1. 首次上屏前关闭

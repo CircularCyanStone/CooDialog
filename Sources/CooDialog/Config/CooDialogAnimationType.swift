@@ -1,8 +1,8 @@
 //
-//  SKDialogAnimationType.swift
+//  CooDialogAnimationType.swift
 //  SiKu
 //
-//  入场 / 退场动画类型（9 种内置 + 1 个自定义扩展点）。配置契约的一部分，从 SKDialogConfig.swift 拆出。
+//  入场 / 退场动画类型（9 种内置 + 1 个自定义扩展点）。配置契约的一部分，从 CooDialogConfig.swift 拆出。
 //
 
 import UIKit
@@ -19,7 +19,7 @@ import UIKit
 /// - 不带后缀（如 `.slideFromBottom`）：容器只做位移，自身始终不透明，仅遮罩单独淡入
 /// - 带 `WithFade`（如 `.slideFromBottomWithFade`）：位移同时让容器自身从透明淡入
 /// 因此 WithFade 版本的主观速度感更慢、更"柔"，适合大面板；不带后缀的更适合轻量提示条。
-public enum SKDialogAnimationType: Equatable {
+public enum CooDialogAnimationType: Equatable {
     case slideFromBottom    // 从屏幕下方滑入（容器不淡入）
     case fadeScale          // 原地缩放淡入，默认缩放起点见 FadeScaleAnimation
     case slideFromTop       // 从屏幕上方滑入（容器不淡入）
@@ -29,15 +29,15 @@ public enum SKDialogAnimationType: Equatable {
     case slideFromTopWithFade       // 从上方滑入 + 容器淡入
     case slideFromLeftWithFade      // 从左侧滑入 + 容器淡入
     case slideFromRightWithFade     // 从右侧滑入 + 容器淡入
-    case custom(SKDialogAnimationProtocol)  // 自定义动画：由宿主实现协议注入
+    case custom(CooDialogAnimationProtocol)  // 自定义动画：由宿主实现协议注入
 
     // 手写 Equatable 实现的原因（编译器无法自动合成）：
-    // `.custom` 的关联值 SKDialogAnimationProtocol 是存在类型，协议本身不继承 Equatable，
+    // `.custom` 的关联值 CooDialogAnimationProtocol 是存在类型，协议本身不继承 Equatable，
     // 因此无法逐 case 比较关联值。这里对 9 种内置类型做真实比较，对 `.custom` 一律返回 false。
     // 于是需要留意语义边界：两个 `.custom` 即使指向同一种动画也判为不相等，
     // "不相等"只意味着"无法判定相等"，调用方不应据 == false 推断两动画不同
     // （若确需比较，应在协议中额外暴露标识符）。
-    public static func == (lhs: SKDialogAnimationType, rhs: SKDialogAnimationType) -> Bool {
+    public static func == (lhs: CooDialogAnimationType, rhs: CooDialogAnimationType) -> Bool {
         switch (lhs, rhs) {
         case (.slideFromBottom, .slideFromBottom),
              (.fadeScale, .fadeScale),
@@ -61,12 +61,12 @@ public enum SKDialogAnimationType: Equatable {
 
 // MARK: - 实现映射（internal）
 
-extension SKDialogAnimationType {
+extension CooDialogAnimationType {
 
     /// 滑动方向。`nil` 表示"不靠位移入场"——目前只有 `fadeScale` 与 `.custom`。
     ///
     /// 这是"哪些类型属于滑动动画、朝哪个方向滑"的唯一判定处：
-    /// 动画实现（`SlideAnimation`）、首帧预置与布局后校正（`SKDialogAnimationStateManager`）
+    /// 动画实现（`SlideAnimation`）、首帧预置与布局后校正（`CooDialogAnimationStateManager`）
     /// 都从这里取，不再各自 switch 一遍。
     var slideDirection: SlideAnimation.Direction? {
         switch self {

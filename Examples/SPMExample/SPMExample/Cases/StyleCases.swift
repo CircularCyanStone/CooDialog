@@ -39,9 +39,9 @@ extension ViewController {
             title: "一套自定义外观",
             message: "遮罩改紫、容器改暖黄半透明、圆角 24、阴影更大更浓——全部通过配置方法完成，不需要改库。"
         )
-        card.addButton("关闭") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭") { [weak card] in card?.closeCooDialog() }
 
-        SKDialog.center()
+        CooDialog.center()
             .contentView(card)
             .size(width: 300)
             .maskColor(UIColor.systemPurple.withAlphaComponent(0.45))
@@ -62,7 +62,7 @@ extension ViewController {
             message: "shadow 默认开启：容器看起来浮在遮罩之上。1.8 秒后自动换成同款但关掉阴影的。"
         )
 
-        let first = SKDialog.center()
+        let first = CooDialog.center()
             .contentView(withShadow)
             .fixedWidth(300)
             .cornerRadius(16)
@@ -75,7 +75,7 @@ extension ViewController {
                     title: "无阴影",
                     message: "shadow(show: false)：容器不再有投影，边界只能靠背景色与遮罩的对比来区分。"
                 )
-                SKDialog.center()
+                CooDialog.center()
                     .contentView(withoutShadow)
                     .fixedWidth(300)
                     .cornerRadius(16)
@@ -98,7 +98,7 @@ extension ViewController {
         // 内容视图自己的背景：不透明 + 直角 → 正好盖住容器的圆角
         opaque.backgroundColor = .systemBlue.withAlphaComponent(0.85)
 
-        let first = SKDialog.center()
+        let first = CooDialog.center()
             .contentView(opaque)
             .fixedWidth(300)
             .cornerRadius(24)
@@ -111,7 +111,7 @@ extension ViewController {
                     title: "内容用透明背景",
                     message: "同一个容器、同样的圆角 24，只把内容背景去掉，圆角就正常显示了。"
                 )
-                SKDialog.center()
+                CooDialog.center()
                     .contentView(transparent)
                     .fixedWidth(300)
                     .cornerRadius(24)
@@ -131,7 +131,7 @@ extension ViewController {
             message: "先弹的这个层级低：1.2 秒后弹出的默认层级（.alert + 1）会盖在它上面，而它自己的内容点不到——点击会被上层遮罩拦住。"
         )
 
-        let lowDialog = SKDialog.center()
+        let lowDialog = CooDialog.center()
             .contentView(lowCard)
             .fixedWidth(300)
             .windowLevel(.normal)
@@ -143,9 +143,9 @@ extension ViewController {
                 title: "windowLevel 默认（.alert + 1）",
                 message: "我盖在刚才那个之上：两个弹窗都是自建 window，层级高的在上。"
             )
-            highCard.addButton("关闭") { [weak highCard] in highCard?.closeSKDialog() }
+            highCard.addButton("关闭") { [weak highCard] in highCard?.closeCooDialog() }
 
-            SKDialog.bottom()
+            CooDialog.bottom()
                 .contentView(highCard)
                 .fixedHeight(220)
                 .backgroundColor(.secondarySystemBackground)

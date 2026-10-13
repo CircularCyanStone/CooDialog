@@ -50,7 +50,7 @@ extension ViewController {
             expanded: "展开后调用 updateContainerHeight(360)：容器长高，sizeMode 从 fixedWidth 升格为 fixed——高度一旦被明确指定，就不再是“随内容”了"
         )
 
-        let dialog = SKDialog.center()
+        let dialog = CooDialog.center()
             .contentView(card)
             .size(width: 300)
             .cornerRadius(14)
@@ -64,7 +64,7 @@ extension ViewController {
             self?.log.record("D1 动态改高度", "updateContainerHeight(\(Int(height))) → sizeMode \(dialog.config.sizeMode.shortDescription)")
         }
 
-        card.addButton("关闭") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭") { [weak card] in card?.closeCooDialog() }
     }
 
     // MARK: - D2 动态改宽高
@@ -75,7 +75,7 @@ extension ViewController {
             message: "updateContainerSize 在一次事务里同时改两个方向，因此只会有一段过渡动画，而不是先宽后高的两段。"
         )
 
-        let dialog = SKDialog.center()
+        let dialog = CooDialog.center()
             .contentView(card)
             .size(width: 300, height: 200)
             .cornerRadius(14)
@@ -87,7 +87,7 @@ extension ViewController {
             dialog.updateContainerSize(width: 320, height: 260)
             self?.log.record("D2 宽高同改", "updateContainerSize(320, 260) → sizeMode \(dialog.config.sizeMode.shortDescription)")
         }
-        card.addButton("关闭") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭") { [weak card] in card?.closeCooDialog() }
     }
 
     // MARK: - D3 自适应被改尺寸后仍能撑开
@@ -99,7 +99,7 @@ extension ViewController {
             expanded: "内容变长了，容器被一起撑高——说明刚才“临时钉住”的高度没有把模式改成 fixed，只是补了一条低优先级的约束"
         )
 
-        let dialog = SKDialog.center()
+        let dialog = CooDialog.center()
             .contentView(card)
             .contentAdaptive()
             .cornerRadius(14)
@@ -114,7 +114,7 @@ extension ViewController {
         card.onToggle = { [weak self] expanded in
             self?.log.record("D3 自适应", expanded ? "内容展开（未调用任何改尺寸 API）" : "内容收起")
         }
-        card.addButton("关闭") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭") { [weak card] in card?.closeCooDialog() }
     }
 
     // MARK: - D4 回调链
@@ -125,7 +125,7 @@ extension ViewController {
             message: "关闭时按注册顺序依次触发：两条 addCompletionHandler，最后才是 dismiss 自己带的一次性回调。"
         )
 
-        let dialog = SKDialog.center()
+        let dialog = CooDialog.center()
             .contentView(card)
             .size(width: 300)
             .cornerRadius(14)
@@ -152,7 +152,7 @@ extension ViewController {
             message: "这个弹窗会在展示 0.05 秒后立刻关闭：轨迹里能看到 present.willStart 与完整的退场过程，但没有 present.didFinish——入场被打断时，库不会谎报“显示完成”。"
         )
 
-        let dialog = SKDialog.center()
+        let dialog = CooDialog.center()
             .contentView(card)
             .size(width: 300)
             .cornerRadius(14)
@@ -173,7 +173,7 @@ extension ViewController {
             message: "两次 dismiss 只产生一轮退场轨迹：第一次正常播动画，第二次因为已不在展示状态而立刻回调。"
         )
 
-        let dialog = SKDialog.center()
+        let dialog = CooDialog.center()
             .contentView(card)
             .size(width: 300)
             .cornerRadius(14)

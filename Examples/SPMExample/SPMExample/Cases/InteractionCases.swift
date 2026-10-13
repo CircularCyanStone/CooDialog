@@ -26,7 +26,7 @@ extension ViewController {
                  identifier: "case.interaction.nested",
                  action: #selector(ViewController.showNestedDialogs)),
             Case(title: "按钮埋在 3 层容器里",
-                 detail: "closeSKDialog() 沿响应链上溯，嵌套层数与能否找到弹窗无关；按钮先报出 isInSKDialog",
+                 detail: "closeCooDialog() 沿响应链上溯，嵌套层数与能否找到弹窗无关；按钮先报出 isInCooDialog",
                  identifier: "case.interaction.deepNested",
                  action: #selector(ViewController.showDeepNestedClose)),
             Case(title: "拖拽时的遮罩淡化",
@@ -45,7 +45,7 @@ extension ViewController {
             rowCount: 8
         )
 
-        SKDialog.bottom()
+        CooDialog.bottom()
             .contentView(panel)
             .enablePanGestureDismiss(false)
             .backgroundColor(.secondarySystemBackground)
@@ -61,9 +61,9 @@ extension ViewController {
             title: "遮罩不可点关",
             message: "dismissOnBackgroundTap(false)：点遮罩没有反应，只能点下面的按钮。"
         )
-        card.addButton("关闭") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭") { [weak card] in card?.closeCooDialog() }
 
-        SKDialog.center()
+        CooDialog.center()
             .contentView(card)
             .size(width: 300)
             .dismissOnBackgroundTap(false)
@@ -78,16 +78,16 @@ extension ViewController {
 
         let inner = MessageCardView(
             title: "内层弹窗",
-            message: "点“关闭内层”只会关掉我：closeSKDialog() 命中的是响应链上最近的那一层，外层不受影响。"
+            message: "点“关闭内层”只会关掉我：closeCooDialog() 命中的是响应链上最近的那一层，外层不受影响。"
         )
-        inner.addButton("关闭内层") { [weak inner] in inner?.closeSKDialog() }
+        inner.addButton("关闭内层") { [weak inner] in inner?.closeCooDialog() }
 
         let outer = MessageCardView(
             title: "外层弹窗",
             message: "点“弹出内层”会在上面再叠一层；把内层关掉之后，我还在这里。"
         )
         outer.addButton("弹出内层") {
-            SKDialog.center()
+            CooDialog.center()
                 .contentView(inner)
                 .size(width: 280)
                 .cornerRadius(14)
@@ -95,9 +95,9 @@ extension ViewController {
                 .logging("C3 内层", into: log)
                 .show()
         }
-        outer.addButton("关闭外层") { [weak outer] in outer?.closeSKDialog() }
+        outer.addButton("关闭外层") { [weak outer] in outer?.closeCooDialog() }
 
-        SKDialog.center()
+        CooDialog.center()
             .contentView(outer)
             .size(width: 300)
             .logging("C3 外层", into: log)
@@ -107,7 +107,7 @@ extension ViewController {
     // MARK: - C4 深层嵌套的按钮
 
     @objc func showDeepNestedClose() {
-        SKDialog.center()
+        CooDialog.center()
             .contentView(DeepNestedCloseView())
             .size(width: 320)
             .cornerRadius(16)
@@ -124,7 +124,7 @@ extension ViewController {
             rowCount: 4
         )
 
-        SKDialog.bottom()
+        CooDialog.bottom()
             .contentView(panel)
             .maskColor(.black.withAlphaComponent(0.7))
             .backgroundColor(.secondarySystemBackground)

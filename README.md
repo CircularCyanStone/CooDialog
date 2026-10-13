@@ -16,7 +16,7 @@ iOS 弹窗组件：一个基于 AutoLayout 的轻量弹窗，提供**底部面�
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/CircularCyanStone/CooDialog.git", from: "0.0.1")
+    .package(url: "https://github.com/CircularCyanStone/CooDialog.git", from: "0.0.2")
 ]
 ```
 
@@ -32,7 +32,7 @@ pod 'CooDialog'
 import CooDialog
 
 // 一行展示底部面板（预设：从底部滑入 / 内容自适应 / 可拖拽 / 延伸安全区）
-SKDialog.bottom()
+CooDialog.bottom()
     .contentView(makePanelView())
     .show()
 ```
@@ -40,7 +40,7 @@ SKDialog.bottom()
 链式配置一个居中对话框：
 
 ```swift
-let dialog = SKDialog.center()
+let dialog = CooDialog.center()
     .contentView(makeCardView())
     .size(width: 280)                    // 只固定宽度，高度随内容
     .cornerRadius(16)
@@ -57,7 +57,7 @@ dialog.updateContainerHeight(320)
 
 ## 常用配置
 
-`SKDialog` 的配置方法都返回 `self`，可任意顺序链式书写；写同一份数据的方法会互相覆盖
+`CooDialog` 的配置方法都返回 `self`，可任意顺序链式书写；写同一份数据的方法会互相覆盖
 （例如 `size(width:)` 与 `fixedWidth(_:)` 改的都是尺寸模式）。
 
 | 方法 | 说明 |
@@ -94,44 +94,44 @@ dialog.isPresenting                           // 当前是否还开着：挂到�
 内容视图里无需持有弹窗引用，沿响应链反查即可：
 
 ```swift
-@objc func closeTapped(_ sender: UIView) { sender.closeSKDialog() }
+@objc func closeTapped(_ sender: UIView) { sender.closeCooDialog() }
 
-if view.isInSKDialog { ... }                 // 判断当前上下文是否在弹窗内
+if view.isInCooDialog { ... }                 // 判断当前上下文是否在弹窗内
 ```
 
 ## 直接使用控制器（不经过构建器）
 
-`SKDialogViewController` 是 `open` 的，可以继承后覆写生命周期方法：
+`CooDialogViewController` 是 `open` 的，可以继承后覆写生命周期方法：
 
 ```swift
-final class MyDialog: SKDialogViewController {
+final class MyDialog: CooDialogViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         // containerView / backgroundView 都是公开属性，可继续定制外观
     }
 }
 
-var config = SKDialogConfig.centerDialog(width: 280)
+var config = CooDialogConfig.centerDialog(width: 280)
 config.dismissOnBackgroundTap = false
 let dialog = MyDialog(config: config)
 dialog.addContentView(makeCardView())
 dialog.show()
 ```
 
-`SKDialogConfig` 另有 `bottomSheet(height:cornerRadius:margins:presentationMode:)` 与 `topSheet(...)`，
+`CooDialogConfig` 另有 `bottomSheet(height:cornerRadius:margins:presentationMode:)` 与 `topSheet(...)`，
 用于只要一份配置的场景。
 
 ## 自定义动画
 
-实现 `SKDialogAnimationProtocol`（入场 + 退场两个方法，**各调用一次 `completion`**），再通过 `.custom` 注入：
+实现 `CooDialogAnimationProtocol`（入场 + 退场两个方法，**各调用一次 `completion`**），再通过 `.custom` 注入：
 
 ```swift
-struct MyAnimation: SKDialogAnimationProtocol {
+struct MyAnimation: CooDialogAnimationProtocol {
     func performPresentAnimation(backgroundView: UIView, containerView: UIView,
-                                 config: SKDialogConfig, completion: @escaping () -> Void) {
+                                 config: CooDialogConfig, completion: @escaping () -> Void) {
         containerView.transform = CGAffineTransform(rotationAngle: .pi / 6).scaledBy(x: 0.6, y: 0.6)
         containerView.alpha = 0
-        SKDialogAnimationUtils.springAnimation(
+        CooDialogAnimationUtils.springAnimation(
             duration: config.animationDuration, damping: config.springDamping,
             velocity: config.springVelocity,
             animations: {
@@ -144,8 +144,8 @@ struct MyAnimation: SKDialogAnimationProtocol {
     }
 
     func performDismissAnimation(backgroundView: UIView, containerView: UIView,
-                                 config: SKDialogConfig, completion: @escaping () -> Void) {
-        SKDialogAnimationUtils.springAnimation(
+                                 config: CooDialogConfig, completion: @escaping () -> Void) {
+        CooDialogAnimationUtils.springAnimation(
             duration: config.animationDuration, damping: config.springDamping,
             velocity: config.springVelocity,
             animations: { backgroundView.alpha = 0; containerView.alpha = 0 },
@@ -173,7 +173,7 @@ struct MyAnimation: SKDialogAnimationProtocol {
 - **关闭可以早于上屏**：`show()` 之后、入场动画发起之前调用 `dismiss()` 同样有效——
   它会走完整的关闭收尾（摘掉 present 关系、回收自建 window、触发各项回调），
   此后到达的 `viewDidAppear` 也不会再把弹窗拉起来。任何时候都可以用
-  `SKDialogViewController.isPresenting` 判断弹窗是否还开着。
+  `CooDialogViewController.isPresenting` 判断弹窗是否还开着。
 - **键盘不归库管**：弹窗不会自动避让键盘。内容里有输入框时由宿主自行处理
   （监听键盘通知调整内容约束，或用 `dialog.updateContainerHeight(_:)` 让容器跟着键盘长高）。
 

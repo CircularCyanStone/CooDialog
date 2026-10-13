@@ -1,5 +1,5 @@
 //
-//  SKDialogViewController.swift
+//  CooDialogViewController.swift
 //  TAIChat
 //
 //  Created by Assistant on 2024
@@ -17,7 +17,7 @@
 //（尺寸变更必须落到约束上，这是二者本征的协作方向，且不构成环）。
 // 视图、配置、展示状态等跨管理器共享的对象仍一律通过控制器协作；
 // 但某个管理器的内部状态（例如约束引用）不再提升到控制器上——那会让同一份状态出现两个维护者。
-// 对应地，SKDialogConstraintManager 持有约束引用与账本（containerConstraints），
+// 对应地，CooDialogConstraintManager 持有约束引用与账本（containerConstraints），
 // 并对尺寸管理器开放 setContainerWidth / setContainerHeight 作为唯一的修改入口。
 //
 // 展示与动画的分界（两条线各自只有一个归属，读代码时按这个顺序看）：
@@ -48,7 +48,7 @@ import UIKit
 /// 必须覆写才能保证两种调用写法行为一致（详见方法说明），子类无需也不应再动它。
 /// 全部 API 均在主 actor 上，需在主线程调用。
 @MainActor
-open class SKDialogViewController: UIViewController {
+open class CooDialogViewController: UIViewController {
 
     // MARK: - Properties
 
@@ -57,36 +57,36 @@ open class SKDialogViewController: UIViewController {
 
     /// 弹窗配置（值类型，库外只读；setter 为 internal 供尺寸回写使用）。
     /// 控制器持有自己那份副本，所有管理器都通过它读取配置；
-    /// 动态改尺寸时 SKDialogContainerSizeManager 会把新的 sizeMode 写回这份副本。
-    public internal(set) var config: SKDialogConfig
+    /// 动态改尺寸时 CooDialogContainerSizeManager 会把新的 sizeMode 写回这份副本。
+    public internal(set) var config: CooDialogConfig
 
     /// 动画管理器：入场/退场动画的唯一出口。
     /// 用 let 而非 lazy：构造时即可创建（构造阶段不做任何 UIKit 操作），之后不再替换。
     /// 它不持有配置——每次执行动画时由本控制器把当前的 config 传进去。
-    private let animationManager: SKDialogAnimationManager
+    private let animationManager: CooDialogAnimationManager
 
     /// 约束管理器：负责创建/成组替换容器的位置与尺寸约束。
     /// 以下管理器都声明为 lazy：它们在初始化时需要引用 self（`init(viewController: self)`），
     /// 而在 `super.init` 完成前访问 self 是不允许的；lazy 把创建推迟到首次使用时，
     /// 天然规避了这个时序限制。首次访问发生在 viewDidLoad，此时 self 已完全初始化。
-    private lazy var constraintManager: SKDialogConstraintManager = SKDialogConstraintManager(viewController: self)
+    private lazy var constraintManager: CooDialogConstraintManager = CooDialogConstraintManager(viewController: self)
 
     /// 手势处理器：背景点击关闭与拖拽关闭
-    private lazy var gestureHandler: SKDialogGestureHandler = SKDialogGestureHandler(viewController: self)
+    private lazy var gestureHandler: CooDialogGestureHandler = CooDialogGestureHandler(viewController: self)
 
     /// 动画状态管理器：预置动画起点、布局后校正滑动偏移
-    private lazy var animationStateManager: SKDialogAnimationStateManager = SKDialogAnimationStateManager(viewController: self)
+    private lazy var animationStateManager: CooDialogAnimationStateManager = CooDialogAnimationStateManager(viewController: self)
 
     /// Window模式管理器：自建 window 的创建、配置、上屏与回收。
     /// 唯一不需要引用 self 的管理器——它需要的窗口层级由调用方按参数传入
     /// （见 presentationHost()），因此不必 lazy，也不参与上面那条"构造时序"的约定。
-    private let windowManager = SKDialogWindowManager()
+    private let windowManager = CooDialogWindowManager()
 
     /// 容器尺寸管理器：运行时动态改尺寸（计算内容尺寸 + 动画过渡 + 回写配置）。
     /// 约束的落地（改 constant / 补建 / 登记）全部交给它依赖的约束管理器，
     /// 因此本管理器不再需要控制器暴露任何约束引用。这里访问另一个 lazy 属性是允许的
     /// （lazy 初始化器在首次访问时求值，此刻 self 已完全初始化，约束管理器会按需先建好）。
-    private lazy var containerSizeManager: SKDialogContainerSizeManager = SKDialogContainerSizeManager(
+    private lazy var containerSizeManager: CooDialogContainerSizeManager = CooDialogContainerSizeManager(
         viewController: self,
         constraintManager: self.constraintManager
     )
@@ -159,9 +159,9 @@ open class SKDialogViewController: UIViewController {
     /// 这里只创建动画管理器并配置模态转场参数（setupViewController）；视图层级与约束要到
     /// viewDidLoad 才搭建（首次访问 `view` 时由 UIKit 触发，见 setupUI 的调用点），
     /// 因此初始化后即可安全调用公开 API，但此刻还没有可用的视图。
-    public init(config: SKDialogConfig = SKDialogConfig()) {
+    public init(config: CooDialogConfig = CooDialogConfig()) {
         self.config = config
-        self.animationManager = SKDialogAnimationManager()
+        self.animationManager = CooDialogAnimationManager()
         super.init(nibName: nil, bundle: nil)
         setupViewController()
     }
@@ -169,8 +169,8 @@ open class SKDialogViewController: UIViewController {
     /// Storyboard / XIB 初始化路径：此路径无法注入配置，只能退化为默认配置。
     /// 常规使用请走 `init(config:)`，否则弹窗位置、动画等全部为默认值。
     required public init?(coder: NSCoder) {
-        self.config = SKDialogConfig()
-        self.animationManager = SKDialogAnimationManager()
+        self.config = CooDialogConfig()
+        self.animationManager = CooDialogAnimationManager()
         super.init(coder: coder)
         setupViewController()
     }
@@ -217,7 +217,7 @@ open class SKDialogViewController: UIViewController {
         presentDialog()
     }
 
-    /// 布局完成后校正滑动动画的起点（详见 SKDialogAnimationStateManager）。
+    /// 布局完成后校正滑动动画的起点（详见 CooDialogAnimationStateManager）。
     /// 只在入场动画尚未完成时生效（状态为 .initial）：此前 AutoLayout 每次求解都可能改变容器尺寸
     /// （内容变化、旋转、安全区变化），而"从屏幕外滑入"的距离取决于容器尺寸，必须跟着更新。
     /// 入场完成后状态推进为 .final，这里不再改写容器 transform，避免把它推回屏幕外。
@@ -238,9 +238,9 @@ open class SKDialogViewController: UIViewController {
     /// - `.viewController(vc)`：直接用宿主指定的控制器
     ///
     /// 确定宿主之后，展示动作只有一句 `host.present(self, animated: false)`——
-    /// 系统转场关闭，视觉动画完全由库自绘（见 `SKDialogAnimationUtils`）。
+    /// 系统转场关闭，视觉动画完全由库自绘（见 `CooDialogAnimationUtils`）。
     ///
-    /// 这是与 `SKDialog` 构建器并列的另一种用法：继承本类后直接调用本方法即可展示，
+    /// 这是与 `CooDialog` 构建器并列的另一种用法：继承本类后直接调用本方法即可展示，
     /// 不需要经过构建器。
     /// - Note: 刻意非 `open`：展示方式的差异请通过 `config.presentationMode` 表达；
     ///   覆写本方法会绕过展示状态机与收尾逻辑（window 回收、系统 dismiss）。
@@ -265,7 +265,7 @@ open class SKDialogViewController: UIViewController {
         //（UIKit 拒绝 present 时不会调用 completion），见 presentationHost() 的两个前置条件。
         guard let host = presentationHost() else {
             #if DEBUG
-            print("SKDialog: 无法展示弹窗（宿主已 present 其它控制器、视图尚未进入 window 层级，或没有可用的 UIWindowScene）")
+            print("CooDialog: 无法展示弹窗（宿主已 present 其它控制器、视图尚未进入 window 层级，或没有可用的 UIWindowScene）")
             #endif
             completion?()
             return self
@@ -303,14 +303,14 @@ open class SKDialogViewController: UIViewController {
     /// 就会出现"先清空、后触发"——回调永久丢失。现在的写法不依赖任何系统时序。
     ///
     /// - Parameters:
-    ///   - flag: 是否播放库自绘的退场动画（系统转场始终关闭，见 `SKDialogAnimationUtils`）。
+    ///   - flag: 是否播放库自绘的退场动画（系统转场始终关闭，见 `CooDialogAnimationUtils`）。
     ///     传 `false` 表示立即收尾——视图随即被移除，没有可动的东西，
     ///     适合页面销毁、退到后台这类不需要过渡的场景。两个动画回调不受影响：
     ///     它们标记的是"关闭流程"的两个阶段，两种情况都会触发。
     ///   - completion: 关闭完成回调（一次性；要追加多个用 `addCompletionHandler(_:)`）。
     ///     未处于展示状态时也会回调，保证"调用 dismiss 一定会收到完成通知"，
     ///     宿主不必自己判断当前状态。
-    /// - Note: 本类全部关闭路径（背景点击 / 拖拽关闭 / `UIView.closeSKDialog()` / 宿主直接调用）
+    /// - Note: 本类全部关闭路径（背景点击 / 拖拽关闭 / `UIView.closeCooDialog()` / 宿主直接调用）
     ///   都收敛到这里，因此覆写它会一次性替换掉所有路径的行为，子类无需也不应再动它。
     ///
     /// 什么算"一次需要收尾的关闭"：只要弹窗已经挂到宿主上（`.presented` / `.presenting`，
@@ -334,7 +334,7 @@ open class SKDialogViewController: UIViewController {
 
         // 冻结布局校正：`.presenting` 时它已由入场链路推进过，而"首次上屏前就关闭"这条路径上
         // 它仍停在 .initial——若不推进，这次关闭期间的任何一次布局都会改写容器 transform，
-        // 把正在播放的退场动画取消掉（详见 SKDialogAnimationStateManager）
+        // 把正在播放的退场动画取消掉（详见 CooDialogAnimationStateManager）
         animationStateManager.markAnimationCompleted()
 
         // 通知关闭流程开始（无论是否播放动画，宿主的清理逻辑都不该被跳过）
@@ -435,7 +435,7 @@ open class SKDialogViewController: UIViewController {
 
 // MARK: - Internal
 
-extension SKDialogViewController {
+extension CooDialogViewController {
 
     /// 播放弹窗的入场动画（内部入口，不负责上屏）。
     ///
@@ -464,7 +464,7 @@ extension SKDialogViewController {
         // 起点校正的最后一次机会，然后立刻冻结：必须先校正（此刻容器尺寸已由约束求解确定），
         // 再切到 .animating 让后续布局不再触碰 transform。
         // 这一步是必需的——动画期间任何一次布局（宿主回填尺寸、内容异步撑开、旋转）都会走到
-        // SKDialogViewController.viewDidLayoutSubviews → updateSlideOffsetAfterLayout()，
+        // CooDialogViewController.viewDidLayoutSubviews → updateSlideOffsetAfterLayout()，
         // 若状态仍是 .initial，那里会直接改写 containerView.transform，
         // 从而取消正在播放的 UIView 动画并把容器永久留在屏幕外（弹窗再也看不见）。
         animationStateManager.updateSlideOffsetAfterLayout()
@@ -477,7 +477,7 @@ extension SKDialogViewController {
         ) { [weak self] in
             // 推进动画状态机到 .final：此后布局不再重设滑动起点。
             // 若不推进（状态一直停在 .initial），弹窗显示后任何一次布局都会把容器推回屏幕外，
-            // 详见 SKDialogAnimationStateManager 的说明
+            // 详见 CooDialogAnimationStateManager 的说明
             self?.animationStateManager.markAnimationCompleted()
             // 通知动画已完成——但只在弹窗仍处于展示中时通知：
             // 入场动画被打断时（用户在 0.3 秒内点了遮罩、或代码紧接着调用了 dismiss）
@@ -495,13 +495,13 @@ extension SKDialogViewController {
     }
 
     /// 自检：尺寸约束与 `config.sizeMode` 是否一致、引用与账本是否同源（调试 / 测试用）。
-    /// 实现完全委托给 SKDialogConstraintManager——约束的账本在它手里，控制器只做转发。
+    /// 实现完全委托给 CooDialogConstraintManager——约束的账本在它手里，控制器只做转发。
     var isSizeConstraintsValid: Bool {
         constraintManager.isSizeConstraintsValid
     }
 
     /// 强制刷新尺寸（调试 / 测试用）：立即重排一次，自适应模式下再按内容重新贴合。
-    /// 同样只做转发，实现见 SKDialogContainerSizeManager.forceRefreshSize。
+    /// 同样只做转发，实现见 CooDialogContainerSizeManager.forceRefreshSize。
     func forceRefreshSize() {
         containerSizeManager.forceRefreshSize()
     }
@@ -509,12 +509,12 @@ extension SKDialogViewController {
 
 // MARK: - Private
 
-extension SKDialogViewController {
+extension CooDialogViewController {
 
     /// 配置模态转场参数。
     /// - `.overFullScreen`：本控制器只覆盖不替换，需要让下层界面保持可见（遮罩是半透明的）。
     /// - `.crossDissolve`：仅在宿主以 `present(_:animated: true)` 使用本控制器时才会生效——
-    ///   库内部一律用 `animated: false`，入场动画由 SKDialogAnimationManager 自绘，
+    ///   库内部一律用 `animated: false`，入场动画由 CooDialogAnimationManager 自绘，
     ///   避免系统转场与自绘动画叠加导致"双重动画"。
     private func setupViewController() {
         modalPresentationStyle = .overFullScreen

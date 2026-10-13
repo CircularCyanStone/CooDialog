@@ -2,6 +2,40 @@
 
 本文件记录 CooDialog 的对外变更，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.0.2] - 2026-10-13
+
+**破坏性变更**：库内所有 `SKDialog` 前缀统一改为 `CooDialog`，旧名不保留兼容别名，
+升级后需要改名（把 `SKDialog` 全局替换为 `CooDialog` 即可）。
+
+### 变更
+
+- **对外类型与成员全部改名**：
+
+  | 旧名 | 新名 |
+  | --- | --- |
+  | `SKDialog` | `CooDialog` |
+  | `SKDialogViewController` | `CooDialogViewController` |
+  | `SKDialogConfig` | `CooDialogConfig` |
+  | `SKDialogPosition` | `CooDialogPosition` |
+  | `SKDialogSizeMode` | `CooDialogSizeMode` |
+  | `SKDialogPresentationMode` | `CooDialogPresentationMode` |
+  | `SKDialogAnimationType` | `CooDialogAnimationType` |
+  | `SKDialogAnimationProtocol` | `CooDialogAnimationProtocol` |
+  | `SKDialogAnimationUtils` | `CooDialogAnimationUtils` |
+  | `UIView.closeSKDialog()` | `UIView.closeCooDialog()` |
+  | `UIView.isInSKDialog` | `UIView.isInCooDialog` |
+
+  内部类型同步改名（`SKDialogAnimationManager` / `SKDialogAnimationStateManager` /
+  `SKDialogConstraintManager` / `SKDialogContainerSizeManager` / `SKDialogGestureHandler` /
+  `SKDialogWindowManager`），源码文件名一并改为 `CooDialog*.swift`。
+- README、podspec 的 description 与两个示例工程（SPMExample / PodExample）里的名称同步更新。
+
+### 迁移
+
+1. 宿主工程里把 `SKDialog` 全局替换为 `CooDialog`。
+2. 接入方式不变：CocoaPods 仍是 `pod 'CooDialog'`，SPM 仍是从本仓库按版本号拉取。
+3. 除命名外没有行为变更：链式配置、`show()`、`dismiss()` 与各回调时机与 0.0.1 一致。
+
 ## [0.0.1] - 2026-10-08
 
 首个公开版本：底部面板 / 居中对话框 / 顶部提示条三种形态，9 种内置入场退场动画，
@@ -19,7 +53,7 @@
 - **`cancelCurrentGestures()` 不再打开配置禁用的手势**：现在只取消"当前启用中"的手势，
   居中弹窗与 `enablePanGestureDismiss(false)` / `dismissOnBackgroundTap(false)` 关掉的交互
   保持禁用状态（修复前一次复位会把它们全部打开，用户随后能按配置明确禁止的方式关闭弹窗）。
-- **CocoaPods 集成路径此前编译不通过**：`SKDialogAnimationManager.makeAnimation()`
+- **CocoaPods 集成路径此前编译不通过**：`CooDialogAnimationManager.makeAnimation()`
   补上显式 `@MainActor`。在 podspec 的 `swift_version = '5.0'` 下，该方法会被视为
   nonisolated，构造主 actor 隔离的动画实现时报
   "call to main actor-isolated initializer in a synchronous nonisolated context"；
@@ -27,15 +61,15 @@
 
 ### 新增
 
-- `SKDialogViewController.isPresenting`：公开的展示状态查询，从弹窗挂到宿主上那一刻起为 true，
+- `CooDialogViewController.isPresenting`：公开的展示状态查询，从弹窗挂到宿主上那一刻起为 true，
   直到关闭收尾完成。宿主不必再自己维护"这个弹窗还开着吗"的标记。
 - 同一个弹窗实例支持关闭后再次展示：`show()` 会把上一轮的状态清回起点
   （修复前第二轮会被上一轮的状态挡住，入场动画不再发起）。
 
 ### 变更
 
-- 底部预设圆角统一为 16：`SKDialog.bottom()` 此前未显式设置圆角（走配置默认的 12），
-  与 `SKDialogConfig.bottomSheet()` 的 16 不一致；现在两个入口观感一致。
+- 底部预设圆角统一为 16：`CooDialog.bottom()` 此前未显式设置圆角（走配置默认的 12），
+  与 `CooDialogConfig.bottomSheet()` 的 16 不一致；现在两个入口观感一致。
 - SPM 工具链门槛由 `swift-tools-version: 6.2` 降到 `6.0`：Xcode 16 及以上即可集成
   （此前要求 Xcode 26+）。源码未使用 6.2 专属特性，全部测试在该门槛下通过。
 - `Examples/PodExample` 补上 `Podfile`，README 的 CocoaPods 示例说明与仓库内容对齐。

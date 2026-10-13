@@ -1,5 +1,5 @@
 //
-//  SKDialogContainerSizeManager.swift
+//  CooDialogContainerSizeManager.swift
 //  SiKu
 //
 //  Created by SOLO Coding on 2024/01/15.
@@ -8,7 +8,7 @@
 
 /**
  * 文件功能描述：
- * SKDialog弹窗组件的容器尺寸管理器，专门负责处理弹窗容器视图的尺寸动态更新和管理。
+ * CooDialog弹窗组件的容器尺寸管理器，专门负责处理弹窗容器视图的尺寸动态更新和管理。
  * 该管理器将容器尺寸相关的复杂逻辑从主控制器中分离出来，提高代码的可维护性和可读性。
  *
  * 类型功能描述：
@@ -26,7 +26,7 @@
  * 3. 在动画块内 layoutIfNeeded：单纯改 constant 不会产生动画，只有当布局求解发生在
  *    UIView.animate 的闭包内，UIKit 才会把受影响的 frame 变化插值成过渡动画
  *
- * 与 SKDialogConstraintManager 的分工：
+ * 与 CooDialogConstraintManager 的分工：
  * 本管理器负责"尺寸变更流程"本身：计算目标尺寸 → 交给约束管理器落地 → 动画事务 → 回写 config。
  * 约束怎么改（已有约束改 constant、没有则补建并登记）由约束管理器决定，本管理器不持有、
  * 也不修改 NSLayoutConstraint 对象——"约束引用与账本同源"这条不变量因此只有一个维护者。
@@ -39,26 +39,26 @@
 
 import UIKit
 
-/// SKDialog容器尺寸管理器
+/// CooDialog容器尺寸管理器
 /// 负责管理弹窗容器视图的尺寸动态更新
 @MainActor
-class SKDialogContainerSizeManager {
+class CooDialogContainerSizeManager {
 
     // MARK: - Properties
 
     /// 弱引用主控制器，避免循环引用
-    private weak var viewController: SKDialogViewController?
+    private weak var viewController: CooDialogViewController?
 
     /// 约束管理器：尺寸变更的唯一落地点（改 constant / 补建 / 登记都在它内部完成）。
     /// 依赖方向是单向的（本管理器 → 约束管理器），后者不引用本管理器，因此这里用强引用不会成环。
-    private let constraintManager: SKDialogConstraintManager
+    private let constraintManager: CooDialogConstraintManager
 
     /// 尺寸变化动画配置。
     ///
     /// 用私有结构体集中参数（而不是散落的字面量）的理由：尺寸过渡是全库统一的一种动画，
     /// 集中后既便于统一调整，也不会污染公开 API。
     ///
-    /// - Note: 这套参数与 SKDialogConfig 中的入场/退场动画参数**相互独立**：
+    /// - Note: 这套参数与 CooDialogConfig 中的入场/退场动画参数**相互独立**：
     ///   尺寸变化始终使用这里的 0.3s / damping 0.8 / velocity 0，
     ///   宿主调整 `config.animationDuration` 不会影响尺寸过渡。
     ///   options 里的 .curveEaseInOut 只在非弹簧路径下才有意义，
@@ -83,7 +83,7 @@ class SKDialogContainerSizeManager {
     /// - Parameters:
     ///   - viewController: 关联的弹窗控制器（提供视图、配置与动画语境）
     ///   - constraintManager: 约束管理器，负责把新尺寸落到约束上
-    init(viewController: SKDialogViewController, constraintManager: SKDialogConstraintManager) {
+    init(viewController: CooDialogViewController, constraintManager: CooDialogConstraintManager) {
         self.viewController = viewController
         self.constraintManager = constraintManager
     }
@@ -184,7 +184,7 @@ class SKDialogContainerSizeManager {
 
 // MARK: - Private
 
-extension SKDialogContainerSizeManager {
+extension CooDialogContainerSizeManager {
 
     // MARK: - Config Updates
 
@@ -196,7 +196,7 @@ extension SKDialogContainerSizeManager {
     /// - `.fixedWidth`：升格为 `.fixed`（因为现在高度也被定死了，不再是"高度随内容"）
     /// - `.contentAdaptive`：**不改**——自适应弹窗被动态改高度后，模式本身仍是自适应。
     ///   这一条要与约束侧配套看：补建的高度约束用的是"低于内容固有尺寸诉求"的优先级
-    ///   （见 SKDialogConstraintManager.sizeConstraintPriority），因此"内容变大仍能撑开容器"
+    ///   （见 CooDialogConstraintManager.sizeConstraintPriority），因此"内容变大仍能撑开容器"
     ///   这句话在配置与约束两层同时成立。若在这里改成 `.fixed`，模式就与"可被内容撑开"矛盾了
     ///   （这也正是"不允许 `.fixed` 传 nil"的原因：那种写法会在这一步被误判成固定尺寸意图）
     private func updateConfigForHeightChange(_ height: CGFloat) {
@@ -239,7 +239,7 @@ extension SKDialogContainerSizeManager {
     ///
     /// `.contentAdaptive` 例外——与高度/宽度两条路径用同一条规则：自适应弹窗被钉住尺寸后，
     /// 模式本身仍是自适应，内容变大时依然能撑开它（约束侧的低优先级补建与之配套，
-    /// 见 SKDialogConstraintManager.sizeConstraintPriority）。若在这里改成 `.fixed`，
+    /// 见 CooDialogConstraintManager.sizeConstraintPriority）。若在这里改成 `.fixed`，
     /// 一次"按内容重算尺寸"（adjustSizeToContent / forceRefreshSize）就会把它永久钉死，
     /// 与另外两条路径的行为也不一致。
     private func updateConfigForSizeChange(_ size: CGSize) {
@@ -335,7 +335,7 @@ extension SKDialogContainerSizeManager {
 // MARK: - Debug & Testing
 
 /// 调试 / 测试用的只读快照与强制刷新入口，不参与生产路径。
-extension SKDialogContainerSizeManager {
+extension CooDialogContainerSizeManager {
 
     /// 容器当前的实际尺寸（布局求解后的 bounds，浮点值为测量结果）
     var currentContainerSize: CGSize {

@@ -11,13 +11,13 @@ import CooDialog
 
 // MARK: - 构建器路径
 
-extension SKDialog {
+extension CooDialog {
 
     /// 把四个动画回调接到轨迹面板上（返回 self，便于继续链式书写）。
     /// - Note: 入场回调会在入场完成后被库清空（用完即弃），退场回调保留到关闭收尾时清空，
     ///   所以同一个弹窗"展示 → 关闭"各触发一次，轨迹里正好四行。
     @discardableResult
-    func logging(_ name: String, into log: DialogEventLog) -> SKDialog {
+    func logging(_ name: String, into log: DialogEventLog) -> CooDialog {
         onPresentAnimationWillStart { log.record(name, "present.willStart") }
             .onPresentAnimationDidFinish { log.record(name, "present.didFinish") }
             .onDismissAnimationWillStart { log.record(name, "dismiss.willStart") }
@@ -27,10 +27,10 @@ extension SKDialog {
 
 // MARK: - 控制器路径
 
-extension SKDialogViewController {
+extension CooDialogViewController {
 
     /// 直接构造控制器的案例用它接线。
-    /// 这些案例走控制器路径的原因：`SKDialog.show()` 不接受 completion，
+    /// 这些案例走控制器路径的原因：`CooDialog.show()` 不接受 completion，
     /// 而"未能展示时也回调"的约定只有 `show(completion:)` 能观察到。
     func logging(_ name: String, into log: DialogEventLog) {
         presentAnimationWillStartHandler = { log.record(name, "present.willStart") }
@@ -42,7 +42,7 @@ extension SKDialogViewController {
 
 // MARK: - 日志可读性
 
-extension SKDialogSizeMode {
+extension CooDialogSizeMode {
 
     /// 轨迹面板里用的短形式：`fixed 300×360` / `fixedWidth 300` / `contentAdaptive`。
     /// 目的是让"动态改尺寸后配置被回写成什么"一眼可读（完整 case 名的打印太长，一行放不下）。

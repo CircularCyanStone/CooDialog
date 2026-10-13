@@ -1,9 +1,9 @@
 //
-//  SKDialogAnimationUtils.swift
+//  CooDialogAnimationUtils.swift
 //  SiKu
 //
 //  动画工具：内置动画与宿主自定义动画共用的 UIKit 动画封装。
-//  从 SKDialogAnimationProtocol.swift 拆出，原文件只保留协议定义。
+//  从 CooDialogAnimationProtocol.swift 拆出，原文件只保留协议定义。
 //
 
 import UIKit
@@ -17,11 +17,11 @@ import UIKit
 /// - Note: 用**空枚举**（uninhabited）而非 class/struct 承载：这里只有静态方法、
 ///   没有任何实例语义，空枚举恰好表达"它不该也不能被实例化"。
 @MainActor
-public enum SKDialogAnimationUtils {
+public enum CooDialogAnimationUtils {
 
     /// 执行弹簧动画（内置动画统一使用的方式）。
     ///
-    /// 参数落点：`duration` / `damping` / `velocity` 均来自 SKDialogConfig，
+    /// 参数落点：`duration` / `damping` / `velocity` 均来自 CooDialogConfig，
     /// 因此宿主调 `animation(_:duration:damping:velocity:)` 就能统一改掉所有内置动画的手感。
     ///
     /// options 的选择理由：

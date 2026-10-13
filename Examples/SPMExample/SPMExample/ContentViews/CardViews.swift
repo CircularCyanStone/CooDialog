@@ -58,7 +58,7 @@ class MessageCardView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     /// 追加一个按钮（可以在弹窗展示之后再调用，界面上即时生效）。
-    /// 按钮顺序即调用顺序；回调里要关闭弹窗时，用持有的控制器或 `sender.closeSKDialog()`。
+    /// 按钮顺序即调用顺序；回调里要关闭弹窗时，用持有的控制器或 `sender.closeCooDialog()`。
     @discardableResult
     func addButton(_ title: String, handler: @escaping () -> Void) -> UIButton {
         let button = UIButton(type: .system)

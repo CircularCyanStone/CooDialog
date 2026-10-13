@@ -1,5 +1,5 @@
 //
-//  SKDialogAnimationStateManager.swift
+//  CooDialogAnimationStateManager.swift
 //  SiKu
 //
 //  Created by SOLO Coding on 2024/01/15.
@@ -25,13 +25,13 @@
  *
  * 状态推进（谁改状态、何时改）——四次推进构成完整生命周期：
  * - `setupInitialAnimationState()`（由控制器 viewDidLoad 调用）：置为 .initial
- * - `SKDialogViewController.presentDialog()` 发起动画前：先校正一次起点，
+ * - `CooDialogViewController.presentDialog()` 发起动画前：先校正一次起点，
  *   再调用 markAnimationStarted() 置为 .animating，冻结动画期间的布局校正
- * - `SKDialogViewController.presentDialog()` 的入场动画完成回调：调用 markAnimationCompleted() 置为 .final
- * - `SKDialogViewController.dismiss()`：同样调用 markAnimationCompleted() 冻结布局校正——
+ * - `CooDialogViewController.presentDialog()` 的入场动画完成回调：调用 markAnimationCompleted() 置为 .final
+ * - `CooDialogViewController.dismiss()`：同样调用 markAnimationCompleted() 冻结布局校正——
  *   "首次上屏前就关闭"（入场还没发起，状态仍是 .initial）的路径上若不推进，
  *   关闭期间的任何一次布局都会把正在播放的退场动画取消掉
- * - `SKDialogViewController.show()`（同一个实例再次展示）：调用 prepareForReuse()
+ * - `CooDialogViewController.show()`（同一个实例再次展示）：调用 prepareForReuse()
  *   回到 .initial 并重设首帧状态，否则新一轮不会做首帧预置与布局校正
  *
  * 为什么 .animating 这一档是必需的：`updateSlideOffsetAfterLayout()` 会直接改写
@@ -44,14 +44,14 @@ import UIKit
 
 /// 弹窗动画状态管理器。
 ///
-/// 由 SKDialogViewController 持有（lazy 创建），是动画链路上"唯一记得当前处于什么阶段"的对象。
+/// 由 CooDialogViewController 持有（lazy 创建），是动画链路上"唯一记得当前处于什么阶段"的对象。
 @MainActor
-class SKDialogAnimationStateManager {
+class CooDialogAnimationStateManager {
 
     // MARK: - Properties
 
     /// 弱引用主控制器，避免循环引用
-    private weak var viewController: SKDialogViewController?
+    private weak var viewController: CooDialogViewController?
 
     /// 当前动画状态
     private var currentAnimationState: AnimationState = .initial
@@ -67,7 +67,7 @@ class SKDialogAnimationStateManager {
 
     /// 初始化动画状态管理器
     /// - Parameter viewController: 关联的弹窗控制器
-    init(viewController: SKDialogViewController) {
+    init(viewController: CooDialogViewController) {
         self.viewController = viewController
     }
 
@@ -75,7 +75,7 @@ class SKDialogAnimationStateManager {
 
     /// 设置动画初始状态。
     ///
-    /// 调用时机：SKDialogViewController.setupUI() 内，即视图层级刚建好、约束尚未求解时。
+    /// 调用时机：CooDialogViewController.setupUI() 内，即视图层级刚建好、约束尚未求解时。
     /// 目的：让容器上屏的第一帧就位于"该动画的起点"（例如屏幕下方、或缩放 80% 且透明），
     /// 而不是先出现在最终位置再被动画拉走（那会表现为闪一下）。
     ///
@@ -125,7 +125,7 @@ class SKDialogAnimationStateManager {
 
     /// 布局完成后校正滑动偏移量。
     ///
-    /// 调用时机：SKDialogViewController.viewDidLayoutSubviews()，每次布局都会走到。
+    /// 调用时机：CooDialogViewController.viewDidLayoutSubviews()，每次布局都会走到。
     /// 作用：用真实 bounds 重算滑动距离并重新施加——viewDidLoad 阶段 bounds 可能是 0，
     /// 那时算出的起点是退化值（兜底距离），必须跟着实际尺寸更新。
     ///
@@ -145,7 +145,7 @@ class SKDialogAnimationStateManager {
     }
 
     /// 标记入场动画开始：状态推进到 .animating，此后 `updateSlideOffsetAfterLayout()` 不再改写容器。
-    /// 调用方：SKDialogViewController.presentDialog()，在完成最后一次起点校正、真正发起动画之前调用。
+    /// 调用方：CooDialogViewController.presentDialog()，在完成最后一次起点校正、真正发起动画之前调用。
     ///
     /// 为什么必须由控制器显式调用、而不是在动画实现内部切状态：动画是"库内实现 + 宿主自定义"
     /// 两种来源共用的扩展点，状态推进属于控制器编排的职责，放在实现里会漏掉自定义动画。
@@ -154,14 +154,14 @@ class SKDialogAnimationStateManager {
     }
 
     /// 标记入场动画完成：状态推进到 .final，此后 updateSlideOffsetAfterLayout() 不再改写容器。
-    /// 调用方：`SKDialogViewController.presentDialog()` 的动画完成回调，
-    /// 以及 `SKDialogViewController.dismiss()`（关闭时统一冻结布局校正）。
+    /// 调用方：`CooDialogViewController.presentDialog()` 的动画完成回调，
+    /// 以及 `CooDialogViewController.dismiss()`（关闭时统一冻结布局校正）。
     func markAnimationCompleted() {
         currentAnimationState = .final
     }
 
     /// 回到初始状态并重新应用首帧预置：供"同一个弹窗实例再次展示"使用。
-    /// 调用方：`SKDialogViewController.show()`（经 prepareForRePresent()，仅在一轮收尾之后）。
+    /// 调用方：`CooDialogViewController.show()`（经 prepareForRePresent()，仅在一轮收尾之后）。
     ///
     /// 与 `markAnimationStarted()` 的区别：那个只改状态（不碰视图，因为动画马上要自己设起点），
     /// 这里还要重设首帧状态——新一轮展示的容器必须先回到起点，否则会以上一轮的终点上屏。
@@ -173,7 +173,7 @@ class SKDialogAnimationStateManager {
 
 // MARK: - Private
 
-extension SKDialogAnimationStateManager {
+extension CooDialogAnimationStateManager {
 
     /// 按滑动方向把容器摆到"屏幕外"的起点。
     ///
@@ -199,7 +199,7 @@ extension SKDialogAnimationStateManager {
 // MARK: - Debug & Testing
 
 /// 调试 / 测试用的只读快照与强制重置入口，均不参与生产路径。
-extension SKDialogAnimationStateManager {
+extension CooDialogAnimationStateManager {
 
     /// 是否处于初始状态
     var isInInitialState: Bool {

@@ -19,7 +19,7 @@ extension ViewController {
                  identifier: "case.animation.builtin",
                  action: #selector(ViewController.showNextBuiltinAnimation)),
             Case(title: "自定义动画（旋转 + 缩放）",
-                 detail: "库实现 SKDialogAnimationProtocol 后经 .custom 注入——扩展动画不需要改库",
+                 detail: "库实现 CooDialogAnimationProtocol 后经 .custom 注入——扩展动画不需要改库",
                  identifier: "case.animation.custom",
                  action: #selector(ViewController.showCustomAnimationCard)),
             Case(title: "手感对照（0.1s 干脆 vs 0.6s 柔和）",
@@ -30,7 +30,7 @@ extension ViewController {
 
         /// B1 的轮播清单：动画名 + 类型 + 与滑动方向匹配的停靠位置。
         /// 位置要跟着动画方向走——"从上滑入"却停在屏幕底部，看起来就不成立了。
-        static let builtin: [(name: String, type: SKDialogAnimationType, position: SKDialogPosition)] = [
+        static let builtin: [(name: String, type: CooDialogAnimationType, position: CooDialogPosition)] = [
             ("slideFromBottom", .slideFromBottom, .bottom),
             ("slideFromTop", .slideFromTop, .top),
             ("slideFromLeft", .slideFromLeft, .center),
@@ -62,9 +62,9 @@ extension ViewController {
             title: item.name,
             message: "第 \(index + 1)/\(items.count) 种内置动画；停靠位置：\(positionText)。再点一次按钮看下一种。"
         )
-        card.addButton("关闭") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭") { [weak card] in card?.closeCooDialog() }
 
-        let builder = SKDialog()
+        let builder = CooDialog()
             .position(item.position)
             .animation(item.type)
             .contentView(card)
@@ -88,9 +88,9 @@ extension ViewController {
             title: "自定义动画",
             message: "旋转 + 缩放：动画实现在示例工程里（SpinScaleAnimation），通过 .custom 注入给库。"
         )
-        card.addButton("关闭") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭") { [weak card] in card?.closeCooDialog() }
 
-        SKDialog.center()
+        CooDialog.center()
             .contentView(card)
             .size(width: 300)
             .cornerRadius(16)
@@ -105,9 +105,9 @@ extension ViewController {
         let log = self.log
 
         let fastCard = MessageCardView(title: "0.1s / damping 1.0", message: "干脆：几乎没有过渡过程，适合轻量提示")
-        fastCard.addButton("关闭") { [weak fastCard] in fastCard?.closeSKDialog() }
+        fastCard.addButton("关闭") { [weak fastCard] in fastCard?.closeCooDialog() }
 
-        let fastDialog = SKDialog.bottom()
+        let fastDialog = CooDialog.bottom()
             .contentView(fastCard)
             .fixedHeight(200)
             .backgroundColor(.secondarySystemBackground)
@@ -119,9 +119,9 @@ extension ViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak fastDialog] in
             fastDialog?.dismiss {
                 let softCard = MessageCardView(title: "0.6s / damping 0.55", message: "柔和：过程更长、带一点回弹，适合大面板")
-                softCard.addButton("关闭") { [weak softCard] in softCard?.closeSKDialog() }
+                softCard.addButton("关闭") { [weak softCard] in softCard?.closeCooDialog() }
 
-                SKDialog.bottom()
+                CooDialog.bottom()
                     .contentView(softCard)
                     .fixedHeight(200)
                     .backgroundColor(.secondarySystemBackground)

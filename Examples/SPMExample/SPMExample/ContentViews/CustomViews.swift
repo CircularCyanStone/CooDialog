@@ -57,7 +57,7 @@ final class ToastView: UIView {
 /// 把"关闭弹窗"按钮埋在 3 层嵌套容器里（C4）。
 ///
 /// 验证点：响应链反查与嵌套层数无关。按钮本身不认识弹窗控制器，
-/// `closeSKDialog()` 从自己出发沿 `next` 一路上溯，穿过多层父视图照样能找到。
+/// `closeCooDialog()` 从自己出发沿 `next` 一路上溯，穿过多层父视图照样能找到。
 /// 为了让人看清"找没找到"，先把判定结果写进标签、停留一秒再真正关闭。
 final class DeepNestedCloseView: UIView {
 
@@ -79,7 +79,7 @@ final class DeepNestedCloseView: UIView {
 
         resultLabel.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         resultLabel.numberOfLines = 0
-        resultLabel.text = "isInSKDialog = ?"
+        resultLabel.text = "isInCooDialog = ?"
 
         let closeButton = UIButton(type: .system)
         closeButton.setTitle("关闭弹窗", for: .normal)
@@ -127,9 +127,9 @@ final class DeepNestedCloseView: UIView {
     }
 
     @objc private func closeTapped(_ sender: UIView) {
-        resultLabel.text = "isInSKDialog = \(sender.isInSKDialog) → 已命中所属弹窗，1 秒后关闭"
+        resultLabel.text = "isInCooDialog = \(sender.isInCooDialog) → 已命中所属弹窗，1 秒后关闭"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak sender] in
-            sender?.closeSKDialog()
+            sender?.closeCooDialog()
         }
     }
 }
@@ -139,25 +139,25 @@ final class DeepNestedCloseView: UIView {
 /// 旋转 + 缩放的入场/退场动画（B2）。
 ///
 /// 它存在的意义不是好看，而是证明"库外能注入动画"这条路是通的：
-/// 实现 `SKDialogAnimationProtocol` 后经 `.animation(.custom(...))` 传入即可，
+/// 实现 `CooDialogAnimationProtocol` 后经 `.animation(.custom(...))` 传入即可，
 /// 不需要改库，也不会与内置动画共用任何代码——只有 easing 曲线复用了公开的
-/// `SKDialogAnimationUtils`，以保证手感与内置动画一致。
+/// `CooDialogAnimationUtils`，以保证手感与内置动画一致。
 ///
 /// 两条硬性约定（协议要求）：起点由动画自己设置（内置动画也这么做，因此动画是自包含的）；
 /// 无论动画是否被打断，`completion` 都必须被恰好调用一次。
-struct SpinScaleAnimation: SKDialogAnimationProtocol {
+struct SpinScaleAnimation: CooDialogAnimationProtocol {
 
     func performPresentAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         backgroundView.alpha = 0
         containerView.alpha = 0
         containerView.transform = CGAffineTransform(rotationAngle: -.pi / 8).scaledBy(x: 0.5, y: 0.5)
 
-        SKDialogAnimationUtils.springAnimation(
+        CooDialogAnimationUtils.springAnimation(
             duration: config.animationDuration,
             damping: config.springDamping,
             velocity: config.springVelocity,
@@ -173,11 +173,11 @@ struct SpinScaleAnimation: SKDialogAnimationProtocol {
     func performDismissAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         // 退场与入场镜像：同样的方向与比例，看起来像"转回去"
-        SKDialogAnimationUtils.springAnimation(
+        CooDialogAnimationUtils.springAnimation(
             duration: config.animationDuration,
             damping: config.springDamping,
             velocity: config.springVelocity,

@@ -74,9 +74,9 @@ final class HostingChildViewController: UIViewController {
             title: "隶属于本页的弹窗",
             message: "我是被这个子页面 present 出来的：它一被关掉，我也会跟着消失，不需要单独关我。"
         )
-        card.addButton("关闭弹窗") { [weak card] in card?.closeSKDialog() }
+        card.addButton("关闭弹窗") { [weak card] in card?.closeCooDialog() }
 
-        SKDialog.center()
+        CooDialog.center()
             .contentView(card)
             .size(width: 280)
             .presentationMode(.viewController(self))

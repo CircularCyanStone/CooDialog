@@ -1,5 +1,5 @@
 //
-//  SKDialogGestureHandler.swift
+//  CooDialogGestureHandler.swift
 //  SiKu
 //
 //  Created by SOLO Coding on 2024/01/15.
@@ -8,7 +8,7 @@
 
 /**
  * 文件功能描述：
- * SKDialog弹窗组件的手势处理器，专门负责处理弹窗的各种手势交互，包括背景点击关闭、拖拽手势等。
+ * CooDialog弹窗组件的手势处理器，专门负责处理弹窗的各种手势交互，包括背景点击关闭、拖拽手势等。
  * 该处理器将手势相关的复杂逻辑从主控制器中分离出来，提高代码的可维护性和可读性。
  *
  * 类型功能描述：
@@ -25,7 +25,7 @@
  *
  * 拖拽的两种实现手段（这是理解本文件的关键）：
  * - 拖拽过程：直接改 `containerView.center`（即时跟手，不平滑、无动画）
- * - 回弹/关闭：交给动画（容器 transform 由 SKDialogAnimationManager 处理）
+ * - 回弹/关闭：交给动画（容器 transform 由 CooDialogAnimationManager 处理）
  * 之所以敢直接改 center：容器虽然有 AutoLayout 约束，但约束只在下一次布局求解时
  * 才会覆盖 center，而拖拽期间不会触发布局，因此改 center 是可行且轻量的。
  * 反过来说——若拖拽过程中恰好发生了布局（宿主改尺寸、屏幕旋转），位移会被约束重置。
@@ -38,18 +38,18 @@
 
 import UIKit
 
-/// SKDialog手势处理器
+/// CooDialog手势处理器
 /// 负责管理弹窗的所有手势交互逻辑
 ///
 /// - Note: 继承 NSObject 是协议要求（`UIGestureRecognizerDelegate` 继承自 `NSObjectProtocol`），
 ///   本类不使用消息转发，继承只为满足这一约束。
 @MainActor
-class SKDialogGestureHandler: NSObject {
+class CooDialogGestureHandler: NSObject {
 
     // MARK: - Properties
 
     /// 弱引用主控制器，避免循环引用
-    private weak var viewController: SKDialogViewController?
+    private weak var viewController: CooDialogViewController?
 
     /// 背景点击手势识别器（持有引用的目的：需要按配置启停、需要能移除）
     private var backgroundTapGesture: UITapGestureRecognizer?
@@ -70,7 +70,7 @@ class SKDialogGestureHandler: NSObject {
 
     /// 初始化手势处理器
     /// - Parameter viewController: 关联的弹窗控制器
-    init(viewController: SKDialogViewController) {
+    init(viewController: CooDialogViewController) {
         self.viewController = viewController
         super.init()
     }
@@ -91,7 +91,7 @@ class SKDialogGestureHandler: NSObject {
 /// 背景：拖拽手势挂在 containerView 上，而内容里的 UIScrollView / UITableView 自带 pan 手势。
 /// 两个手势位于不同视图，UIKit 默认会**同时识别**——用户滚动列表时整个面板会跟着一起位移。
 /// 这里在"手势即将开始"时做一次判定，把纵向滚动留给内容。
-extension SKDialogGestureHandler: UIGestureRecognizerDelegate {
+extension CooDialogGestureHandler: UIGestureRecognizerDelegate {
 
     /// 是否允许拖拽手势开始（判定细节见 `shouldBeginPan(at:velocity:position:)`）。
     /// - Note: 可滚动视图的识别靠 hitTest 链上是否为 UIScrollView，覆盖 UIScrollView /
@@ -126,7 +126,7 @@ extension SKDialogGestureHandler: UIGestureRecognizerDelegate {
     ///   - velocity: 拖动速度（containerView 坐标系）
     ///   - position: 弹窗停靠位置，决定"关闭方向"
     /// - Returns: true 表示面板接管这次拖动；false 表示交给内容处理（或方向不是纵向）
-    func shouldBeginPan(at location: CGPoint, velocity: CGPoint, position: SKDialogPosition) -> Bool {
+    func shouldBeginPan(at location: CGPoint, velocity: CGPoint, position: CooDialogPosition) -> Bool {
         // 1) 只接管纵向滑动
         guard abs(velocity.y) > abs(velocity.x) else { return false }
 
@@ -148,7 +148,7 @@ extension SKDialogGestureHandler: UIGestureRecognizerDelegate {
 
     /// 滚动视图在"面板关闭方向"上是否还有可滚动的内容。
     /// 有余量表示这次拖动应该用于滚动内容；没有余量（已到顶 / 已到底）才让面板接管。
-    private func scrollViewHasRoom(_ scrollView: UIScrollView, towardDismissal position: SKDialogPosition) -> Bool {
+    private func scrollViewHasRoom(_ scrollView: UIScrollView, towardDismissal position: CooDialogPosition) -> Bool {
         // 内容不足一屏（或只有横向滚动）：纵向没有可滚动的余量
         guard scrollView.contentSize.height > scrollView.bounds.height else { return false }
 
@@ -170,7 +170,7 @@ extension SKDialogGestureHandler: UIGestureRecognizerDelegate {
 
 // MARK: - Private
 
-extension SKDialogGestureHandler {
+extension CooDialogGestureHandler {
 
     // MARK: - Background Tap
 
@@ -178,7 +178,7 @@ extension SKDialogGestureHandler {
     ///
     /// 两个要点：
     /// - target 是 handler 自身，因此手势存活期间 handler 必须存活
-    ///   （由 SKDialogViewController 强引用持有，生命周期一致）
+    ///   （由 CooDialogViewController 强引用持有，生命周期一致）
     /// - 启用状态在安装时读取配置一次；之后改配置不会同步到这里（本类不提供重新同步入口）
     private func setupBackgroundTapGesture() {
         guard let viewController = viewController else { return }
@@ -356,7 +356,7 @@ extension SKDialogGestureHandler {
         return max(viewController.containerView.bounds.height, Self.minimumDragReferenceHeight)
     }
 
-    /// 基准高度的下限：与内容的最小高度（`SKDialogContainerSizeManager` 里的 44）保持一致，
+    /// 基准高度的下限：与内容的最小高度（`CooDialogContainerSizeManager` 里的 44）保持一致，
     /// 也接近最小的可用触控尺寸。兜底只会在容器尚未布局时生效，正常拖拽中不会触发。
     private static let minimumDragReferenceHeight: CGFloat = 44
 
@@ -452,7 +452,7 @@ extension SKDialogGestureHandler {
 // MARK: - Debug & Testing
 
 /// 调试 / 测试用的状态查询与强制复位入口，不参与生产路径。
-extension SKDialogGestureHandler {
+extension CooDialogGestureHandler {
 
     /// 是否正处于拖拽进行中
     var isDragging: Bool {

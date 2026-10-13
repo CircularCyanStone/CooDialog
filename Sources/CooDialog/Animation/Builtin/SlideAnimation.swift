@@ -3,7 +3,7 @@
 //  SiKu
 //
 //  内置动画实现：贴边面板的滑动（4 个方向 × 是否淡入，共 8 种内置类型）。
-//  由 SKDialogAnimationManager 按 config.animationType 分发；无状态 struct，每次调用前临时构造、用完即弃。
+//  由 CooDialogAnimationManager 按 config.animationType 分发；无状态 struct，每次调用前临时构造、用完即弃。
 //
 
 import UIKit
@@ -20,7 +20,7 @@ import UIKit
 /// 2. 退场不再求解布局：拖拽可能已经改变了容器的 center，此刻求解会把用户拖出来的位移
 ///    抹掉（约束把视图拉回原位），视觉上表现为莫名其妙的"回弹"
 ///    （距离仍然按当前位置现算，因此"还差多少才出屏"是准确的）
-struct SlideAnimation: SKDialogAnimationProtocol {
+struct SlideAnimation: CooDialogAnimationProtocol {
 
     /// 滑动方向：容器入场时的起点所在方向
     enum Direction {
@@ -38,12 +38,12 @@ struct SlideAnimation: SKDialogAnimationProtocol {
     /// `true`（WithFade 系列）观感更柔和，适合较高的面板。
     let fadesContainer: Bool
 
-    // MARK: - SKDialogAnimationProtocol
+    // MARK: - CooDialogAnimationProtocol
 
     func performPresentAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         // 确保 AutoLayout 已求解：下面的 frame 必须同时反映真实尺寸与位置，滑动距离才算得准
@@ -60,7 +60,7 @@ struct SlideAnimation: SKDialogAnimationProtocol {
         containerView.alpha = fadesContainer ? 0 : 1
         backgroundView.alpha = 0
 
-        SKDialogAnimationUtils.springAnimation(
+        CooDialogAnimationUtils.springAnimation(
             duration: config.animationDuration,
             damping: config.springDamping,
             velocity: config.springVelocity,
@@ -80,7 +80,7 @@ struct SlideAnimation: SKDialogAnimationProtocol {
     func performDismissAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         // 注意：这里刻意不调用 layoutIfNeeded（原因见类型注释）
@@ -91,7 +91,7 @@ struct SlideAnimation: SKDialogAnimationProtocol {
             superviewBounds: containerView.superview?.bounds ?? .zero
         )
 
-        SKDialogAnimationUtils.springAnimation(
+        CooDialogAnimationUtils.springAnimation(
             duration: config.animationDuration,
             damping: config.springDamping,
             velocity: config.springVelocity,
@@ -124,7 +124,7 @@ struct SlideAnimation: SKDialogAnimationProtocol {
     /// - 拖拽后关闭：容器已被拖走一段，算出的正是"还差多少"才完全出屏
     ///
     /// - Important: 全库只有这一处计算滑动距离——入场前的预置首帧
-    ///   （`SKDialogAnimationStateManager`）与这里的动画起点都调用它。
+    ///   （`CooDialogAnimationStateManager`）与这里的动画起点都调用它。
     ///   两处各算一套时，首帧预置的位置与动画起点会不一致，肉眼可见地跳一下。
     /// - Parameters:
     ///   - direction: 起点方向（退场沿同一方向反向使用）

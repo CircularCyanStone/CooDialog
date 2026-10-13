@@ -32,7 +32,7 @@ class ViewController: UIViewController {
     }
 
     /// 与 SPM 集成写法完全相同的一条链式调用：配置 → 装内容 → 展示。
-    /// （`SKDialog.center()` 已预设居中定位、缩放淡入与四周 40 边距，这里只覆盖宽度）
+    /// （`CooDialog.center()` 已预设居中定位、缩放淡入与四周 40 边距，这里只覆盖宽度）
     @objc private func showDialog() {
         // 内容自己负责留白：容器会把内容四边贴合，因此边距写在这一层
         let content = UIView()
@@ -52,7 +52,7 @@ class ViewController: UIViewController {
             label.bottomAnchor.constraint(equalTo: content.layoutMarginsGuide.bottomAnchor),
         ])
 
-        SKDialog.center()
+        CooDialog.center()
             .contentView(content)
             .size(width: 280)
             .show()

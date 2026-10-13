@@ -20,9 +20,9 @@
 //  T1 因此等 0.5 秒后再采样；T2/T3 采的是库自己同步回收的窗口状态，在回调里读就是准的。
 //
 //  想跟代码的话，收尾链路按顺序经过这三处，断在这三个方法里即可：
-//  1. `SKDialogViewController.dismiss(animated:completion:)` —— 状态推进到 .finished 与分派
-//  2. `SKDialogViewController.completeDismissal(completion:)` —— 摘 present → 回收 window → 触发回调
-//  3. `SKDialogWindowManager.removeCustomWindow()` —— 拆窗口树、归还 key window
+//  1. `CooDialogViewController.dismiss(animated:completion:)` —— 状态推进到 .finished 与分派
+//  2. `CooDialogViewController.completeDismissal(completion:)` —— 摘 present → 回收 window → 触发回调
+//  3. `CooDialogWindowManager.removeCustomWindow()` —— 拆窗口树、归还 key window
 //
 
 import UIKit
@@ -89,7 +89,7 @@ extension ViewController {
     @objc func probeHostedTeardown() {
         let name = "T1 宿主收尾"
 
-        let dialog = SKDialogViewController(config: SKDialogConfig.centerDialog(
+        let dialog = CooDialogViewController(config: CooDialogConfig.centerDialog(
             width: 280,
             presentationMode: .viewController(self)
         ))
@@ -107,7 +107,7 @@ extension ViewController {
             // 采样点必须等系统转场落定——库自身的收尾（状态复位、回调清理）在回调触发时已完成，
             // 但 UIKit 摘掉 present 关系、把视图移出窗口是**异步**的：在这一刻立刻读，
             // presentedViewController / view.window 都还是旧值（本库的契约只承诺"视觉上已消失、
-            // window 与 key 已收尾"，不承诺这两个属性已刷新，见 SKDialogViewController.dismiss 的说明）。
+            // window 与 key 已收尾"，不承诺这两个属性已刷新，见 CooDialogViewController.dismiss 的说明）。
             self.log.record(name, "关闭流程已走完，等系统转场落定后采样")
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -140,7 +140,7 @@ extension ViewController {
         let name = "T2 window 收尾"
         log.record(name, "展示前 \(windowSnapshot())")
 
-        let dialog = SKDialog.center()
+        let dialog = CooDialog.center()
             .contentView(MessageCardView(
                 title: "window 模式收尾探针",
                 message: "关掉我：轨迹里对比展示前后的窗口清单——自建窗口应消失、key 应回到 App 窗口。"
@@ -173,7 +173,7 @@ extension ViewController {
         let name = "T3 上屏前关闭"
         log.record(name, "展示前 \(windowSnapshot())")
 
-        let dialog = SKDialog.center()
+        let dialog = CooDialog.center()
             .contentView(MessageCardView(
                 title: "（这个弹窗不该出现）",
                 message: "如果你看到了我，说明“上屏前关闭”失效了——修复前它会自己冒出来并一直停在屏幕上。"
@@ -204,7 +204,7 @@ extension ViewController {
     @objc func probeReShow() {
         let name = "T4 二次展示"
 
-        let dialog = SKDialog.center()
+        let dialog = CooDialog.center()
             .contentView(MessageCardView(
                 title: "二次展示探针",
                 message: "第一轮 0.8 秒后自动关闭；随后用同一个实例再 show() 一次，看是否照常显示。"

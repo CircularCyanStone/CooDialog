@@ -39,7 +39,7 @@ final class PanelContentView: UIView {
         closeButton.setTitle("关闭", for: .normal)
         closeButton.titleLabel?.font = .preferredFont(forTextStyle: .subheadline)
         // 不需要持有弹窗控制器：沿响应链反查所属弹窗即可
-        closeButton.addAction(UIAction { [weak self] _ in self?.closeSKDialog() }, for: .touchUpInside)
+        closeButton.addAction(UIAction { [weak self] _ in self?.closeCooDialog() }, for: .touchUpInside)
 
         let header = UIStackView(arrangedSubviews: [titleLabel, UIView(), closeButton])
         header.axis = .horizontal

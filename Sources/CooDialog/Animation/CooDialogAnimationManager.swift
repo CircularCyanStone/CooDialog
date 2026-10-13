@@ -1,21 +1,21 @@
 /**
  * 文件功能描述：
  * 弹窗动画的「分发层」：按 config.animationType 把入场 / 退场调用转交给对应的动画实现，
- * 并兜住宿主的自定义实现。映射表就是本文件末尾的 `SKDialogAnimationType.makeAnimation()`。
+ * 并兜住宿主的自定义实现。映射表就是本文件末尾的 `CooDialogAnimationType.makeAnimation()`。
  *
  * 设计原理：分发 + 无状态实现
  * - 分发器本身不写动画，只把类型映射成实现对象再调用；映射关系全库只有一份，
  *   新增内置动画只需要改那一处。
  * - 每个实现都是**无状态**的 struct：调用前临时构造、用完即弃。
- *   动画参数（时长/阻尼/方向/边距）全部来自 SKDialogConfig，
+ *   动画参数（时长/阻尼/方向/边距）全部来自 CooDialogConfig，
  *   因此不存在跨次调用的残留，也不会出现"上一次动画的参数污染这一次"。
  *
  * 实现分工（见 Animation/Builtin/）：
  * - `SlideAnimation`：8 种滑动类型共用一个实现，差异由"方向 + 是否淡入"表达
  * - `FadeScaleAnimation`：原地缩放淡入
- * - 宿主的实现：经 `SKDialogAnimationType.custom` 注入，库不做任何包装
+ * - 宿主的实现：经 `CooDialogAnimationType.custom` 注入，库不做任何包装
  *
- * 与状态管理器的关系：SKDialogAnimationStateManager 会在展示前预置起点状态（防闪现），
+ * 与状态管理器的关系：CooDialogAnimationStateManager 会在展示前预置起点状态（防闪现），
  * 而各动画实现在动画开始时**再次设置起点**。两处同时存在是有意的：
  * 预置状态负责"上屏首帧不能露出错误位置"，动画实现则保证"无论此前处于什么状态，
  * 动画起点都是正确的"（自包含，不依赖外部状态）。
@@ -27,17 +27,17 @@ import UIKit
 /// 弹窗动画分发器。
 ///
 /// 对外可见（public）是为了让宿主在需要时可以单独构造使用；库内由
-/// SKDialogViewController 强引用并委托调用，宿主一般不需要直接接触它。
+/// CooDialogViewController 强引用并委托调用，宿主一般不需要直接接触它。
 ///
 /// 无状态：不持有配置也不缓存动画实现，配置由每次调用传入，
 /// 因此同一实例可安全复用于多次入场/退场。
 @MainActor
-public class SKDialogAnimationManager {
+public class CooDialogAnimationManager {
 
     // MARK: - Initialization
 
     /// 无参初始化：本类不持有任何状态——配置由调用方在每次执行动画时传入，
-    /// 因此值类型的 SKDialogConfig 也能反映调用时刻的最新取值。
+    /// 因此值类型的 CooDialogConfig 也能反映调用时刻的最新取值。
     public init() {}
 
     // MARK: - Public Methods
@@ -52,7 +52,7 @@ public class SKDialogAnimationManager {
     public func performPresentAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         config.animationType.makeAnimation().performPresentAnimation(
@@ -76,7 +76,7 @@ public class SKDialogAnimationManager {
     public func performDismissAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         config.animationType.makeAnimation().performDismissAnimation(
@@ -90,7 +90,7 @@ public class SKDialogAnimationManager {
 
 // MARK: - 类型 → 实现（库内唯一的分发表）
 
-extension SKDialogAnimationType {
+extension CooDialogAnimationType {
 
     /// 把动画类型映射成具体实现。
     ///
@@ -102,14 +102,14 @@ extension SKDialogAnimationType {
     /// 扩展指引：新增内置**滑动**类型时，只需在 `slideDirection` 里补一个 case，这里不用动；
     /// 新增**非滑动**类型时，编译器会因为 switch 不再穷尽而报错——这正是我们要的提醒。
     ///
-    /// - Note: 显式标注 `@MainActor`。本方法构造的都是 `SKDialogAnimationProtocol` 的实现，
+    /// - Note: 显式标注 `@MainActor`。本方法构造的都是 `CooDialogAnimationProtocol` 的实现，
     ///   而该协议是主 actor 隔离的（实现类型随之隐式隔离），因此构造动作必须在主 actor 上。
     ///   不标注时 Swift 5 语言模式（CocoaPods 走 podspec 的 `swift_version = '5.0'`）
     ///   会把本方法视为 nonisolated，进而报
     ///   "call to main actor-isolated initializer in a synchronous nonisolated context"；
     ///   Swift 6 模式的隔离推断恰好能通过，所以这个问题只在 pod 侧暴露。
     @MainActor
-    func makeAnimation() -> SKDialogAnimationProtocol {
+    func makeAnimation() -> CooDialogAnimationProtocol {
         switch self {
         case .custom(let animation):
             // 自定义动画完全由宿主控制：起点、终点、时长、是否动遮罩都不受库约束，

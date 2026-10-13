@@ -1,12 +1,12 @@
 //
-//  SKDialog.swift
+//  CooDialog.swift
 //  SiKu
 //
 //  Created by Assistant on 2024
 //
 
 /**
- * SKDialog - 弹窗组件的便捷入口类
+ * CooDialog - 弹窗组件的便捷入口类
  *
  * 功能描述：
  * - 提供链式配置API，简化弹窗创建和配置过程
@@ -16,7 +16,7 @@
  * - 内置常用弹窗类型的快速创建方法
  *
  * 类型功能描述：
- * - SKDialog：主要的弹窗构建器类，提供链式配置API
+ * - CooDialog：主要的弹窗构建器类，提供链式配置API
  * - 静态便利方法：提供快速创建常用弹窗的方法
  * - 扩展方法：提供预设配置的构建器
  *
@@ -25,11 +25,11 @@
  *    链式 API 让这些决定可以写成一条表达式，读代码时一眼看清"这个弹窗长什么样"
  * 2. 延迟展示：配置阶段不创建任何视图，真正落地发生在 `show()`——
  *    因此可以先构造再决定展示方式，也可以把它当参数在方法间传递
- * 3. 分层清晰：本类只负责收集意图（写入 SKDialogConfig），
- *    执行全部交给 SKDialogViewController 及其管理器，两者互不越界
+ * 3. 分层清晰：本类只负责收集意图（写入 CooDialogConfig），
+ *    执行全部交给 CooDialogViewController 及其管理器，两者互不越界
  *
  * 三个类型的关系与生命周期：
- * `SKDialog`（意图收集）→ 持有 `SKDialogConfig`（参数，值类型）→ `show()` 创建 `SKDialogViewController`（执行）
+ * `CooDialog`（意图收集）→ 持有 `CooDialogConfig`（参数，值类型）→ `show()` 创建 `CooDialogViewController`（执行）
  * 配置按值传递：`show()` 会把当时的配置交给控制器，之后对构建器的修改不会影响已展示的弹窗；
  * 同一个构建器实例展示两次，两个弹窗各自持有独立的配置，互不干扰。
  * 需要"基于同一份预设再改几项"时，重新调用静态工厂（`bottom()` / `center()` / `top()`）即可。
@@ -41,7 +41,7 @@ import UIKit
 /// 全部 API 在主 actor 上；每个配置方法都返回 self（并用 @discardableResult 允许忽略返回值），
 /// 因此既可以 `dialog.position(.bottom).show()` 连写，也可以逐行配置。
 @MainActor
-public class SKDialog {
+public class CooDialog {
 
     // MARK: - Internal Storage
 
@@ -50,7 +50,7 @@ public class SKDialog {
 
     /// 配置累积器：所有链式方法最终都写进这里，`show()` 时整体交给控制器。
     /// 只在构建器内部使用，宿主看到的是各个语义化的配置方法。
-    private var config = SKDialogConfig()
+    private var config = CooDialogConfig()
 
     /// 待装载的内容视图。
     /// 延迟到 `show()` 才加入容器：此时控制器与容器已存在，能立刻建立四边贴合约束；
@@ -85,15 +85,15 @@ public class SKDialog {
     /// 影响面较广：约束锚点、拖拽方向、滑动动画的进出方向都由它决定，
     /// 因此建议在链式调用的前段设置，避免与后续的尺寸/动画方法语义互相打架。
     @discardableResult
-    public func position(_ position: SKDialogPosition) -> SKDialog {
+    public func position(_ position: CooDialogPosition) -> CooDialog {
         config.position = position
         return self
     }
 
     /// 设置显示模式（等价于写 config.presentationMode）。
-    /// - Note: 传 `.viewController(self)` 时配置会强引用该控制器（见 SKDialogPresentationMode 的内存提示）。
+    /// - Note: 传 `.viewController(self)` 时配置会强引用该控制器（见 CooDialogPresentationMode 的内存提示）。
     @discardableResult
-    public func presentationMode(_ mode: SKDialogPresentationMode) -> SKDialog {
+    public func presentationMode(_ mode: CooDialogPresentationMode) -> CooDialog {
         config.presentationMode = mode
         return self
     }
@@ -103,7 +103,7 @@ public class SKDialog {
     ///   `fixedHeight(_:)` 是同一份数据的不同入口，**后调用的会覆盖先调用的**
     ///   （它们都直接改写 sizeMode，而不是叠加）。
     @discardableResult
-    public func sizeMode(_ mode: SKDialogSizeMode) -> SKDialog {
+    public func sizeMode(_ mode: CooDialogSizeMode) -> CooDialog {
         config.sizeMode = mode
         return self
     }
@@ -112,7 +112,7 @@ public class SKDialog {
     /// 语义随位置而异：底部/顶部弹窗用 top/bottom 控制贴边留白、left/right 作为最小横向留白；
     /// 居中弹窗只用 left/right 限制最大宽度。
     @discardableResult
-    public func margins(_ margins: UIEdgeInsets) -> SKDialog {
+    public func margins(_ margins: UIEdgeInsets) -> CooDialog {
         config.margins = margins
         return self
     }
@@ -120,7 +120,7 @@ public class SKDialog {
     /// 设置容器背景色。仅影响容器本身，内容视图的内部背景需自行设置
     /// （内容四边贴合容器，自带不透明直角背景会盖住圆角）。
     @discardableResult
-    public func backgroundColor(_ color: UIColor) -> SKDialog {
+    public func backgroundColor(_ color: UIColor) -> CooDialog {
         config.containerBackgroundColor = color
         return self
     }
@@ -128,7 +128,7 @@ public class SKDialog {
     /// 设置容器圆角半径。
     /// - Note: 圆角作用于容器 layer，而开启阴影时图层不裁剪，因此子视图不会被自动裁进圆角。
     @discardableResult
-    public func cornerRadius(_ radius: CGFloat) -> SKDialog {
+    public func cornerRadius(_ radius: CGFloat) -> CooDialog {
         config.cornerRadius = radius
         return self
     }
@@ -136,7 +136,7 @@ public class SKDialog {
     /// 仅设置动画类型，时长与弹簧参数保持 config 默认值（0.3s / damping 0.8 / velocity 0.5）。
     /// 需要同时定制手感时用下面带参数的重载。
     @discardableResult
-    public func animation(_ type: SKDialogAnimationType) -> SKDialog {
+    public func animation(_ type: CooDialogAnimationType) -> CooDialog {
         config.animationType = type
         return self
     }
@@ -145,7 +145,7 @@ public class SKDialog {
     /// 手势在 `show()` 之前安装时读取此值，因此必须在展示前设置；
     /// 展示后再改配置不会同步到已安装的手势。
     @discardableResult
-    public func dismissOnBackgroundTap(_ dismiss: Bool = true) -> SKDialog {
+    public func dismissOnBackgroundTap(_ dismiss: Bool = true) -> CooDialog {
         config.dismissOnBackgroundTap = dismiss
         return self
     }
@@ -155,7 +155,7 @@ public class SKDialog {
     ///   （`config` 对库外只读）；需要另一种交互形态时请新建弹窗。
     /// - Note: 内容里若有可滚动的子视图，拖拽会让位给滚动——列表到顶时才接管面板。
     @discardableResult
-    public func enablePanGestureDismiss(_ enable: Bool = true) -> SKDialog {
+    public func enablePanGestureDismiss(_ enable: Bool = true) -> CooDialog {
         config.enablePanGestureDismiss = enable
         return self
     }
@@ -163,7 +163,7 @@ public class SKDialog {
     /// 设置Window层级（仅在window模式下有效）。
     /// 默认 `.alert + 1`；调低可能让弹窗被更高层级的 window（键盘、系统弹窗）遮挡。
     @discardableResult
-    public func windowLevel(_ level: UIWindow.Level) -> SKDialog {
+    public func windowLevel(_ level: UIWindow.Level) -> CooDialog {
         config.windowLevel = level
         return self
     }
@@ -174,13 +174,13 @@ public class SKDialog {
     ///
     /// - Important: 会覆盖之前的尺寸设置——`size` / `fixedWidth` / `fixedHeight` /
     ///   `contentAdaptive` 改写的是同一个 `config.sizeMode`，调用顺序靠后的生效。
-    /// - Note: 映射规则只在 SKDialogSizeMode 的便利初始化器里定义一次，
-    ///   SKDialogConfig 的工厂方法（centerDialog / bottomSheet / topSheet）走的是同一条规则。
+    /// - Note: 映射规则只在 CooDialogSizeMode 的便利初始化器里定义一次，
+    ///   CooDialogConfig 的工厂方法（centerDialog / bottomSheet / topSheet）走的是同一条规则。
     /// - Parameter width: 固定宽度；nil 表示该方向随内容变化
     /// - Parameter height: 固定高度；nil 表示该方向随内容变化
     @discardableResult
-    public func size(width: CGFloat? = nil, height: CGFloat? = nil) -> SKDialog {
-        config.sizeMode = SKDialogSizeMode(width: width, height: height)
+    public func size(width: CGFloat? = nil, height: CGFloat? = nil) -> CooDialog {
+        config.sizeMode = CooDialogSizeMode(width: width, height: height)
         return self
     }
 
@@ -188,30 +188,30 @@ public class SKDialog {
     /// 内容必须自带内在尺寸或自身约束，否则容器会塌缩到 0 尺寸。
     /// 与 `.contentAdaptive` 是同一件事的两种入口（`size()` 不传参数等价于此）。
     @discardableResult
-    public func contentAdaptive() -> SKDialog {
+    public func contentAdaptive() -> CooDialog {
         config.sizeMode = .contentAdaptive
         return self
     }
 
     /// 设置固定宽度，高度仍随内容变化（等价于 `size(width:)`）。
     @discardableResult
-    public func fixedWidth(_ width: CGFloat) -> SKDialog {
+    public func fixedWidth(_ width: CGFloat) -> CooDialog {
         config.sizeMode = .fixedWidth(width)
         return self
     }
 
     /// 设置固定高度，宽度仍随内容变化（等价于 `size(height:)`）。
     @discardableResult
-    public func fixedHeight(_ height: CGFloat) -> SKDialog {
+    public func fixedHeight(_ height: CGFloat) -> CooDialog {
         config.sizeMode = .fixedHeight(height)
         return self
     }
 
     /// 设置遮罩颜色（含 alpha 的完整颜色）。
     /// - Note: 拖拽时会以该颜色的 alpha 为基准淡出（最多 50%），
-    ///   因此建议使用半透明色，详见 SKDialogConfig.backgroundMaskColor。
+    ///   因此建议使用半透明色，详见 CooDialogConfig.backgroundMaskColor。
     @discardableResult
-    public func maskColor(_ color: UIColor) -> SKDialog {
+    public func maskColor(_ color: UIColor) -> CooDialog {
         config.backgroundMaskColor = color
         return self
     }
@@ -225,7 +225,7 @@ public class SKDialog {
         offset: CGSize = CGSize(width: 0, height: 2),
         radius: CGFloat = 8,
         opacity: Float = 0.15
-    ) -> SKDialog {
+    ) -> CooDialog {
         config.showShadow = show
         config.shadowColor = color
         config.shadowOffset = offset
@@ -243,11 +243,11 @@ public class SKDialog {
     /// - Note: 尺寸变化的过渡动画不受这些参数影响（它使用独立的固定参数）。
     @discardableResult
     public func animation(
-        _ type: SKDialogAnimationType,
+        _ type: CooDialogAnimationType,
         duration: TimeInterval = 0.3,
         damping: CGFloat = 0.8,
         velocity: CGFloat = 0.5
-    ) -> SKDialog {
+    ) -> CooDialog {
         config.animationType = type
         config.animationDuration = duration
         config.springDamping = damping
@@ -258,7 +258,7 @@ public class SKDialog {
     /// 设置是否延伸到安全区域（仅对底部和顶部弹窗有效）
     /// 为 true 时容器贴屏幕物理边缘，内容需自行处理刘海/Home Indicator 的间距。
     @discardableResult
-    public func extendToSafeArea(_ extend: Bool) -> SKDialog {
+    public func extendToSafeArea(_ extend: Bool) -> CooDialog {
         config.extendToSafeArea = extend
         return self
     }
@@ -266,21 +266,21 @@ public class SKDialog {
     /// 设置动画显示开始回调（在入场动画发起前触发，适合做数据准备或埋点起点）。
     /// 回调在 `show()` 之后由控制器持有并在入场完成时清理，不会长期驻留。
     @discardableResult
-    public func onPresentAnimationWillStart(_ handler: @escaping () -> Void) -> SKDialog {
+    public func onPresentAnimationWillStart(_ handler: @escaping () -> Void) -> CooDialog {
         self.presentAnimationWillStartHandler = handler
         return self
     }
 
     /// 设置动画显示完成回调（入场动画结束时触发，适合做自动聚焦、开始计时等）。
     @discardableResult
-    public func onPresentAnimationDidFinish(_ handler: @escaping () -> Void) -> SKDialog {
+    public func onPresentAnimationDidFinish(_ handler: @escaping () -> Void) -> CooDialog {
         self.presentAnimationDidFinishHandler = handler
         return self
     }
 
     /// 设置动画消失开始回调（退场动画发起前触发）。
     @discardableResult
-    public func onDismissAnimationWillStart(_ handler: @escaping () -> Void) -> SKDialog {
+    public func onDismissAnimationWillStart(_ handler: @escaping () -> Void) -> CooDialog {
         self.dismissAnimationWillStartHandler = handler
         return self
     }
@@ -289,7 +289,7 @@ public class SKDialog {
     /// 若需要在窗口/控制器彻底收尾后执行逻辑，用 `show()` 返回值的
     /// `addCompletionHandler(_:)`，或 `dismiss(completion:)`。
     @discardableResult
-    public func onDismissAnimationDidFinish(_ handler: @escaping () -> Void) -> SKDialog {
+    public func onDismissAnimationDidFinish(_ handler: @escaping () -> Void) -> CooDialog {
         self.dismissAnimationDidFinishHandler = handler
         return self
     }
@@ -298,7 +298,7 @@ public class SKDialog {
     /// 内容会在 `show()` 时被装载并四边贴合容器（容器的自适应尺寸正来源于此）。
     /// - Note: 多次调用只有最后一次生效（这里保存的是引用，不是数组）。
     @discardableResult
-    public func contentView(_ view: UIView) -> SKDialog {
+    public func contentView(_ view: UIView) -> CooDialog {
         self.contentView = view
         return self
     }
@@ -315,10 +315,10 @@ public class SKDialog {
     /// - Note: 展示方式（自建 window / 指定控制器 present）由控制器按
     ///   `config.presentationMode` 自行决定，构建器不参与判断；入场动画同样由控制器统一
     ///   发起，本方法不直接播放动画。不想经过构建器时，也可以直接创建（或继承）
-    ///   `SKDialogViewController` 并调用它的 `show()`。
+    ///   `CooDialogViewController` 并调用它的 `show()`。
     @discardableResult
-    public func show() -> SKDialogViewController {
-        let dialog = SKDialogViewController(config: config)
+    public func show() -> CooDialogViewController {
+        let dialog = CooDialogViewController(config: config)
 
         if let contentView = contentView {
             dialog.addContentView(contentView)
@@ -344,10 +344,10 @@ public class SKDialog {
     /// 之所以提供预设而不是让宿主每次手写一串配置：这三套参数是经过验证的常见组合
     /// （底部面板、居中提示、顶部通知条），预设能让普通用法保持一行代码，
     /// 需要偏离时再用链式方法覆盖其中的某一项。
-    /// - Note: 圆角与 `SKDialogConfig.bottomSheet()` 的默认值一致——两者曾分别是 12 与 16，
+    /// - Note: 圆角与 `CooDialogConfig.bottomSheet()` 的默认值一致——两者曾分别是 12 与 16，
     ///   同一个"底部面板"出现两种默认观感，现已对齐。
-    public static func bottom() -> SKDialog {
-        return SKDialog()
+    public static func bottom() -> CooDialog {
+        return CooDialog()
             .position(.bottom)
             .animation(.slideFromBottom)
             .margins(UIEdgeInsets.zero)
@@ -359,8 +359,8 @@ public class SKDialog {
 
     /// 创建居中弹窗（预设：缩放淡入 / 四周 40 边距 / 圆角 12）。
     /// 边距在这里同时扮演"最大宽度限制"的角色，避免内容撑满屏幕宽度。
-    public static func center() -> SKDialog {
-        return SKDialog()
+    public static func center() -> CooDialog {
+        return CooDialog()
             .position(.center)
             .animation(.fadeScale)
             .margins(UIEdgeInsets(top: 40, left: 40, bottom: 40, right: 40))
@@ -370,8 +370,8 @@ public class SKDialog {
     /// 创建顶部弹窗（预设：从顶部滑入 / 圆角 16 / 可拖拽）。
     /// - Note: 与 `bottom()` 不同，这里没有设置 `extendToSafeArea`，
     ///   沿用配置默认值（当前默认为 true，即贴屏幕物理上边缘）。
-    public static func top() -> SKDialog {
-        return SKDialog()
+    public static func top() -> CooDialog {
+        return CooDialog()
             .position(.top)
             .animation(.slideFromTop)
             .margins(UIEdgeInsets.zero)
@@ -382,26 +382,26 @@ public class SKDialog {
     // MARK: - Quick Creation Methods
 
     /// 一行完成"创建底部弹窗并展示"，返回控制器以便后续操作。
-    /// 等价于 `SKDialog.bottom().contentView(view).show()`。
+    /// 等价于 `CooDialog.bottom().contentView(view).show()`。
     @discardableResult
-    public static func showBottom(with contentView: UIView) -> SKDialogViewController {
-        return SKDialog.bottom()
+    public static func showBottom(with contentView: UIView) -> CooDialogViewController {
+        return CooDialog.bottom()
             .contentView(contentView)
             .show()
     }
 
-    /// 一行完成"创建居中弹窗并展示"，等价于 `SKDialog.center().contentView(view).show()`。
+    /// 一行完成"创建居中弹窗并展示"，等价于 `CooDialog.center().contentView(view).show()`。
     @discardableResult
-    public static func showCenter(with contentView: UIView) -> SKDialogViewController {
-        return SKDialog.center()
+    public static func showCenter(with contentView: UIView) -> CooDialogViewController {
+        return CooDialog.center()
             .contentView(contentView)
             .show()
     }
 
-    /// 一行完成"创建顶部弹窗并展示"，等价于 `SKDialog.top().contentView(view).show()`。
+    /// 一行完成"创建顶部弹窗并展示"，等价于 `CooDialog.top().contentView(view).show()`。
     @discardableResult
-    public static func showTop(with contentView: UIView) -> SKDialogViewController {
-        return SKDialog.top()
+    public static func showTop(with contentView: UIView) -> CooDialogViewController {
+        return CooDialog.top()
             .contentView(contentView)
             .show()
     }

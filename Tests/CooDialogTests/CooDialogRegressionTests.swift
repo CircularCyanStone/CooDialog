@@ -4,7 +4,7 @@ import UIKit
 
 /// 本轮代码评审修复项对应的回归测试。
 ///
-/// 与 `SKDialogBehaviourTests` 的分工：那个文件覆盖"配置项与状态机曾经失效"的长期契约，
+/// 与 `CooDialogBehaviourTests` 的分工：那个文件覆盖"配置项与状态机曾经失效"的长期契约，
 /// 这里覆盖本轮评审新修/新加的行为，每条都对应一个可观察的现象：
 /// 1. 遮罩约束不能从账本里"消失"（历史上重建位置约束时会把遮罩约束一起丢掉）
 /// 2. `.viewController` 模式下 present 被系统拒绝时，show 的完成回调仍然要回调
@@ -24,7 +24,7 @@ import UIKit
 /// - Note: window 模式的**成功**路径无法在这里覆盖——测试宿主没有 UIWindowScene，
 ///   `presentationHost()` 里的自建 window 必然失败。那条链路需要跑 Examples 下的示例工程验证。
 @MainActor
-struct SKDialogRegressionTests {
+struct CooDialogRegressionTests {
 
     // MARK: - 公共构造
 
@@ -33,9 +33,9 @@ struct SKDialogRegressionTests {
     ///   才能算出容器与内容的真实 frame（拖拽准入的命中判定依赖它）。
     private func makeDialog(
         contentSize: CGSize = CGSize(width: 300, height: 200),
-        configure: (inout SKDialogConfig) -> Void = { _ in }
-    ) -> (dialog: SKDialogViewController, content: UIView) {
-        var config = SKDialogConfig()
+        configure: (inout CooDialogConfig) -> Void = { _ in }
+    ) -> (dialog: CooDialogViewController, content: UIView) {
+        var config = CooDialogConfig()
         config.animationDuration = 0.05          // 缩短动画时长，让测试等待更短
         config.springDamping = 1                // 无回弹，便于断言最终状态
         configure(&config)
@@ -50,7 +50,7 @@ struct SKDialogRegressionTests {
         contentHeight.priority = .defaultLow
         NSLayoutConstraint.activate([contentWidth, contentHeight])
 
-        let dialog = SKDialogViewController(config: config)
+        let dialog = CooDialogViewController(config: config)
         dialog.addContentView(content)
         dialog.loadViewIfNeeded()               // 触发 viewDidLoad：建视图、约束、手势、预置动画状态
         dialog.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -75,11 +75,11 @@ struct SKDialogRegressionTests {
     }
 
     /// 从容器上的拖拽手势反查手势处理器（delegate 即处理器自身），供准入判定测试直接调用
-    private func panHandler(of dialog: SKDialogViewController) -> SKDialogGestureHandler? {
+    private func panHandler(of dialog: CooDialogViewController) -> CooDialogGestureHandler? {
         dialog.containerView.gestureRecognizers?
             .compactMap { $0 as? UIPanGestureRecognizer }
             .first?
-            .delegate as? SKDialogGestureHandler
+            .delegate as? CooDialogGestureHandler
     }
 
     // MARK: - 1. 遮罩约束
@@ -516,7 +516,7 @@ struct SKDialogRegressionTests {
 /// 可手动控制结束时刻的动画实现：入场时把 completion 挂起，由测试决定何时"动画结束"。
 /// 用它替代真实动画，可以完全确定地复现"入场尚未结束就被关闭"的时序。
 @MainActor
-final class ManualCompletionAnimation: SKDialogAnimationProtocol {
+final class ManualCompletionAnimation: CooDialogAnimationProtocol {
 
     private var presentCompletion: (() -> Void)?
 
@@ -529,7 +529,7 @@ final class ManualCompletionAnimation: SKDialogAnimationProtocol {
     func performPresentAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         presentCompletion = completion      // 挂起：由测试决定何时结束
@@ -538,7 +538,7 @@ final class ManualCompletionAnimation: SKDialogAnimationProtocol {
     func performDismissAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         completion()                        // 退场立即收尾，方便断言

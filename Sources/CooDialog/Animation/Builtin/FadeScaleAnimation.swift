@@ -2,7 +2,7 @@
 //  FadeScaleAnimation.swift
 //  SiKu
 //
-//  内置动画实现之一：渐变缩放（默认动画类型）。由 SKDialogAnimationManager 按
+//  内置动画实现之一：渐变缩放（默认动画类型）。由 CooDialogAnimationManager 按
 //  `config.animationType` 分发；无状态 struct，每次调用前临时构造、用完即弃。
 //
 
@@ -15,13 +15,13 @@ import UIKit
 ///
 /// 缩放幅度取自 `config.fadeScaleInitialScale`，与布局阶段预置首帧状态用的是同一个值，
 /// 因此"预置状态 → 动画起点"之间不会出现缩放跳变。
-struct FadeScaleAnimation: SKDialogAnimationProtocol {
+struct FadeScaleAnimation: CooDialogAnimationProtocol {
 
     /// 入场：原地由 80% 放大到 100% 并淡入，遮罩同步淡入
     func performPresentAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         // 起点：透明 + 按配置比例缩小（与 state manager 的预置状态读同一个配置值）
@@ -29,7 +29,7 @@ struct FadeScaleAnimation: SKDialogAnimationProtocol {
         containerView.alpha = 0
         containerView.transform = CGAffineTransform(scaleX: initialScale, y: initialScale)
 
-        SKDialogAnimationUtils.springAnimation(
+        CooDialogAnimationUtils.springAnimation(
             duration: config.animationDuration,
             damping: config.springDamping,
             velocity: config.springVelocity,
@@ -48,11 +48,11 @@ struct FadeScaleAnimation: SKDialogAnimationProtocol {
     func performDismissAnimation(
         backgroundView: UIView,
         containerView: UIView,
-        config: SKDialogConfig,
+        config: CooDialogConfig,
         completion: @escaping () -> Void
     ) {
         // 退场即入场起点的镜像：缩回 0.8 并淡出，视觉上"塌缩消失"
-        SKDialogAnimationUtils.springAnimation(
+        CooDialogAnimationUtils.springAnimation(
             duration: config.animationDuration,
             damping: config.springDamping,
             velocity: config.springVelocity,
